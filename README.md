@@ -4,8 +4,8 @@
 只做一件事：把你手机里本地的 TXT / EPUB / MOBI / Markdown 读得舒服一点。
 
 - 包名 `com.azhan.qingyue` ｜ minSdk 26（Android 8.0）｜ targetSdk 35
-- 26 个 Kotlin 文件、约 4600 行
-- release APK 约 **1.1 MB**
+- 28 个 Kotlin 文件、约 5400 行
+- release APK 约 **1.2 MB**
 
 ---
 
@@ -114,7 +114,8 @@ reading/
         │   │   ├── ReaderScreen.kt      # 滚动（ScrolledReader）/ 翻页（PagedReader）
         │   │   ├── BookPaginator.kt     # 按行装箱预分页
         │   │   ├── ReaderSettingsSheet.kt
-        │   │   └── ChapterSheet.kt
+        │   │   ├── ChapterSheet.kt
+        │   │   └── ReaderViewModel.kt
         │   └── settings/SettingsScreen.kt
         └── util/
             ├── ScreenAwake.kt           # 防熄屏双闸门守卫
@@ -139,8 +140,8 @@ export JAVA_HOME="$HOME/.workbuddy-ai/toolchain/jdk-17.0.20.1+1/Contents/Home"
 export ANDROID_HOME="$HOME/.workbuddy-ai/toolchain/android-sdk"
 export PATH="$JAVA_HOME/bin:$PATH"
 
-./gradlew :app:assembleRelease   # 1.1 MB，装机用
-./gradlew :app:assembleDebug     # 17 MB，含完整符号，便于看崩溃堆栈
+./gradlew :app:assembleRelease   # 1.2 MB，装机用
+./gradlew :app:assembleDebug     # 16.8 MB，含完整符号，便于看崩溃堆栈
 ```
 
 > 上面两个路径是本机工具链位置。其他人用 Android Studio 自带的 JDK/SDK，
@@ -150,8 +151,8 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 | 包 | 路径 | 体积 |
 |---|---|---|
-| release（推荐） | `app/build/outputs/apk/release/QingYue-1.0.0-release.apk` | **1.1 MB** |
-| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.0.0-debug.apk` | 17 MB |
+| release（推荐） | `app/build/outputs/apk/release/QingYue-1.0.0-release.apk` | **1.2 MB** |
+| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.0.0-debug.apk` | 16.8 MB |
 
 装到手机：
 
@@ -179,14 +180,14 @@ release 包用 `keystore/qingyue-release.jks` 签名：
 仓库自带 `.github/workflows/build-apk.yml`：**打 tag 才触发**（也可在 Actions 页手动触发）。
 
 ```bash
-git tag v1.0          # 需以 v 开头，如 v1.0 / v1.1 / v2.0
-git push origin v1.0  # 推上去即触发编译
+git tag v1.0.0          # 需以 v 开头，建议与 versionName 一致，如 v1.0.0 / v1.0.1
+git push origin v1.0.0  # 推上去即触发编译
 ```
 
 产物有两个去处：
 
 - **GitHub Release**（仅 tag 构建）：自动创建/更新对应 tag 的 Release，并把 APK
-  作为附件挂上去，文件名形如 `QingYue-v1.0.apk`
+  作为附件挂上去，文件名形如 `QingYue-v1.0.0.apk`
   （**附件名必须纯 ASCII**：GitHub 会删掉 Release 资源名里的非 ASCII 字符）。
   已存在同名 Release 时会**覆盖**附件（`gh release upload --clobber`），可安全重跑。
 - **Artifact**（tag 与手动触发都有）：名为 `qingyue-release-apk`，保留 90 天。

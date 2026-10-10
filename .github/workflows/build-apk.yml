@@ -1,7 +1,7 @@
 name: Build Release APK
 
 # 只在打 tag 时自动编译，例如：
-#   git tag v1.0 && git push origin v1.0
+#   git tag v1.0.0 && git push origin v1.0.0
 # 也可以在 Actions 页面手动触发（workflow_dispatch）。
 #
 # 两个从同类项目踩出来的坑（别再犯）：
