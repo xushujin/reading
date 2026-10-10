@@ -2,10 +2,15 @@ package com.azhan.qingyue.ui.reader
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
@@ -13,7 +18,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.azhan.qingyue.data.parser.BlockStyle
 import com.azhan.qingyue.data.parser.BookDocument
+import com.azhan.qingyue.data.parser.InlineSpan
+import com.azhan.qingyue.data.parser.InlineStyle
 import com.azhan.qingyue.data.prefs.ReaderSettings
 
 /**
@@ -25,21 +33,100 @@ import com.azhan.qingyue.data.prefs.ReaderSettings
  */
 internal fun readerTextStyle(
     settings: ReaderSettings,
-    isHeading: Boolean,
+    blockStyle: BlockStyle,
     isParagraphStart: Boolean,
     color: Color,
-): TextStyle = TextStyle(
-    color = color,
-    fontSize = settings.fontSizeSp.sp,
-    lineHeight = (settings.fontSizeSp * settings.lineHeightMultiplier).sp,
-    fontWeight = if (isHeading) FontWeight.SemiBold else FontWeight.Normal,
-    textAlign = if (isHeading) TextAlign.Center else TextAlign.Start,
-    textIndent = if (!isHeading && isParagraphStart) TextIndent(firstLine = 2.em) else TextIndent(),
-)
+): TextStyle {
+    val heading = blockStyle.isHeading()
+    val scale = when (blockStyle) {
+        BlockStyle.H1 -> 1.60f
+        BlockStyle.H2 -> 1.40f
+        BlockStyle.H3 -> 1.24f
+        BlockStyle.H4 -> 1.14f
+        BlockStyle.H5 -> 1.07f
+        BlockStyle.H6 -> 1.00f
+        BlockStyle.CODE -> 0.92f
+        else -> 1.00f
+    }
+    val fontSize = settings.fontSizeSp * scale
+
+    return TextStyle(
+        color = color,
+        fontSize = fontSize.sp,
+        lineHeight = (fontSize * settings.lineHeightMultiplier).sp,
+        fontFamily = if (blockStyle == BlockStyle.CODE) FontFamily.Monospace else null,
+        fontWeight = when {
+            heading -> FontWeight.SemiBold
+            blockStyle == BlockStyle.QUOTE -> FontWeight.Normal
+            else -> FontWeight.Normal
+        },
+        textAlign = if (heading) TextAlign.Center else TextAlign.Start,
+        // 列表项和引用不首行缩进，靠左侧留白区分层次
+        textIndent = if (!heading && isParagraphStart &&
+            blockStyle != BlockStyle.LIST_ITEM &&
+            blockStyle != BlockStyle.ORDERED_ITEM &&
+            blockStyle != BlockStyle.CODE &&
+            blockStyle != BlockStyle.QUOTE
+        ) {
+            TextIndent(firstLine = 2.em)
+        } else {
+            TextIndent()
+        },
+    )
+}
 
 /** 段前距。同样必须测量与渲染共用。 */
-internal fun readerSpacingBefore(settings: ReaderSettings, isHeading: Boolean): Dp =
-    if (isHeading) (settings.paragraphSpacingDp * 2.5f).dp else settings.paragraphSpacingDp.dp
+internal fun readerSpacingBefore(settings: ReaderSettings, blockStyle: BlockStyle): Dp = when {
+    blockStyle.isHeading() -> (settings.paragraphSpacingDp * 2.0f).dp
+    blockStyle == BlockStyle.CODE -> (settings.paragraphSpacingDp * 0.4f).dp
+    blockStyle == BlockStyle.RULE -> (settings.paragraphSpacingDp * 1.2f).dp
+    blockStyle == BlockStyle.QUOTE -> (settings.paragraphSpacingDp * 0.6f).dp
+    blockStyle == BlockStyle.LIST_ITEM || blockStyle == BlockStyle.ORDERED_ITEM ->
+        (settings.paragraphSpacingDp * 0.35f).dp
+
+    else -> settings.paragraphSpacingDp.dp
+}
+
+/** 左侧额外缩进：列表、引用、代码块需要让出层次。 */
+internal fun readerIndentStart(settings: ReaderSettings, blockStyle: BlockStyle): Dp = when (blockStyle) {
+    BlockStyle.QUOTE -> 16.dp
+    BlockStyle.CODE -> 12.dp
+    BlockStyle.LIST_ITEM, BlockStyle.ORDERED_ITEM -> 8.dp
+    else -> 0.dp
+}
+
+/**
+ * 把行内样式区间转成 AnnotatedString。
+ *
+ * 测量和渲染都走这里 —— 行内代码会换成等宽字体，字宽不同会直接影响换行位置，
+ * 两边不一致的话分页又会算错。
+ */
+internal fun buildAnnotatedText(
+    text: String,
+    spans: List<InlineSpan>,
+    baseColor: Color,
+    accentColor: Color,
+): AnnotatedString {
+    if (spans.isEmpty()) return AnnotatedString(text)
+    return buildAnnotatedString {
+        append(text)
+        for (span in spans) {
+            val from = span.start.coerceIn(0, text.length)
+            val to = span.end.coerceIn(from, text.length)
+            if (from == to) continue
+            val style = when (span.style) {
+                InlineStyle.BOLD -> SpanStyle(fontWeight = FontWeight.SemiBold)
+                InlineStyle.ITALIC -> SpanStyle(fontStyle = FontStyle.Italic)
+                InlineStyle.STRIKE -> SpanStyle(textDecoration = TextDecoration.LineThrough)
+                InlineStyle.CODE -> SpanStyle(
+                    fontFamily = FontFamily.Monospace,
+                    color = accentColor,
+                )
+            }
+            addStyle(style, from, to)
+        }
+    }
+}
 
 /** 页内的一段文字。跨页时可能只是某个段落的一部分。 */
 data class PageSlice(
@@ -49,6 +136,8 @@ data class PageSlice(
     val isHeading: Boolean,
     /** 是否是段落的真正开头 —— 决定要不要首行缩进。跨页续接的部分不缩进。 */
     val isParagraphStart: Boolean,
+    val blockStyle: BlockStyle = BlockStyle.BODY,
+    val spans: List<InlineSpan> = emptyList(),
 )
 
 /** 一页。 */
@@ -101,18 +190,28 @@ class BookPaginator(
 
             while (remaining.isNotEmpty()) {
                 val spacingPx = with(density) {
-                    readerSpacingBefore(settings, paragraph.isHeading).toPx()
+                    readerSpacingBefore(settings, paragraph.blockStyle).toPx()
                 }
 
                 if (usedHeight + spacingPx >= pageHeight) flush()
                 if (slices.isEmpty()) pageStart = paragraph.startOffset + consumed
                 usedHeight += spacingPx
 
+                // spans 的下标是相对整段的，切分后要换算到 remaining 上；
+                // 跨切分点的 span 会丢掉（粗体跨页的极端情况，可接受）
+                val localSpans = if (paragraph.spans.isEmpty()) {
+                    emptyList()
+                } else {
+                    paragraph.spans
+                        .filter { it.start >= consumed && it.end <= consumed + remaining.length }
+                        .map { it.copy(start = it.start - consumed, end = it.end - consumed) }
+                }
+
                 val layout = measurer.measure(
-                    text = AnnotatedString(remaining),
+                    text = buildAnnotatedText(remaining, localSpans, Color.Black, Color.Black),
                     style = readerTextStyle(
                         settings = settings,
-                        isHeading = paragraph.isHeading,
+                        blockStyle = paragraph.blockStyle,
                         isParagraphStart = isParagraphStart,
                         color = Color.Black,
                     ),
@@ -149,6 +248,8 @@ class BookPaginator(
                     chapterIndex = paragraph.chapterIndex,
                     isHeading = paragraph.isHeading,
                     isParagraphStart = isParagraphStart,
+                    blockStyle = paragraph.blockStyle,
+                    spans = localSpans.filter { it.end <= endChar },
                 )
                 usedHeight += blockHeight
 

@@ -159,7 +159,7 @@ class LibraryRepository(
         private val BOOK_ORDER = compareByDescending<BookEntity> { it.lastReadAt }
             .thenBy { it.title }
 
-        val SUPPORTED_EXTENSIONS = setOf("txt", "epub")
+        val SUPPORTED_EXTENSIONS = setOf("txt", "epub", "mobi", "md", "markdown")
 
         fun formatOf(fileName: String): String =
             fileName.substringAfterLast('.', "").lowercase()

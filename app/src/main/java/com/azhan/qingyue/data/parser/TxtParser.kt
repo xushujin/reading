@@ -22,7 +22,8 @@ object TxtParser {
         )
     }
 
-    private fun splitChapters(text: String): List<Chapter> {
+    /** MOBI 解析也复用这套切分逻辑，所以是 internal 而非 private。 */
+    internal fun splitChapters(text: String): List<Chapter> {
         if (text.isBlank()) return listOf(Chapter("", ""))
 
         val chapters = ArrayList<Chapter>(64)

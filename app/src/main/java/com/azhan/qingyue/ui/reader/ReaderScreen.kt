@@ -68,6 +68,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.azhan.qingyue.AppContainer
 import com.azhan.qingyue.data.local.BookEntity
+import com.azhan.qingyue.data.parser.BlockStyle
 import com.azhan.qingyue.data.parser.BookDocument
 import com.azhan.qingyue.data.parser.Paragraph
 import com.azhan.qingyue.data.prefs.ReadMode
@@ -665,16 +666,38 @@ private fun PageContent(page: BookPage, settings: ReaderSettings) {
     // 两边各留一份的话，分页高度会比实际可用高度多算一倍内边距。
     Column(modifier = Modifier.fillMaxSize()) {
         page.slices.forEach { slice ->
+            val block = slice.blockStyle
+
+            if (block == BlockStyle.RULE) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = readerSpacingBefore(settings, block))
+                        .height(1.dp)
+                        .background(palette.divider),
+                )
+                return@forEach
+            }
+
+            val color = when {
+                block.isHeading() -> palette.accent
+                block == BlockStyle.QUOTE -> palette.textSecondary
+                else -> palette.textPrimary
+            }
+
             Text(
-                text = slice.text,
+                text = buildAnnotatedText(slice.text, slice.spans, color, palette.accent),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = readerSpacingBefore(settings, slice.isHeading)),
+                    .padding(
+                        start = readerIndentStart(settings, block),
+                        top = readerSpacingBefore(settings, block),
+                    ),
                 style = readerTextStyle(
                     settings = settings,
-                    isHeading = slice.isHeading,
+                    blockStyle = block,
                     isParagraphStart = slice.isParagraphStart,
-                    color = if (slice.isHeading) palette.accent else palette.textPrimary,
+                    color = color,
                 ),
             )
         }
@@ -684,22 +707,44 @@ private fun PageContent(page: BookPage, settings: ReaderSettings) {
 @Composable
 private fun ParagraphItem(paragraph: Paragraph, settings: ReaderSettings) {
     val palette = LocalReaderPalette.current
-    val heading = paragraph.isHeading
+    val block = paragraph.blockStyle
+
+    // 水平线没有文字，直接画一条
+    if (block == BlockStyle.RULE) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = settings.horizontalPaddingDp.dp,
+                    end = settings.horizontalPaddingDp.dp,
+                    top = readerSpacingBefore(settings, block),
+                )
+                .height(1.dp)
+                .background(palette.divider),
+        )
+        return
+    }
+
+    val color = when {
+        block.isHeading() -> palette.accent
+        block == BlockStyle.QUOTE -> palette.textSecondary
+        else -> palette.textPrimary
+    }
 
     Text(
-        text = paragraph.text,
+        text = buildAnnotatedText(paragraph.text, paragraph.spans, color, palette.accent),
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                start = settings.horizontalPaddingDp.dp,
+                start = settings.horizontalPaddingDp.dp + readerIndentStart(settings, block),
                 end = settings.horizontalPaddingDp.dp,
-                top = readerSpacingBefore(settings, heading),
+                top = readerSpacingBefore(settings, block),
             ),
         style = readerTextStyle(
             settings = settings,
-            isHeading = heading,
+            blockStyle = block,
             isParagraphStart = true,
-            color = if (heading) palette.accent else palette.textPrimary,
+            color = color,
         ),
     )
 }

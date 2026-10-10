@@ -10,6 +10,9 @@ import com.azhan.qingyue.data.local.LibraryDao
 import com.azhan.qingyue.data.parser.BookDocument
 import com.azhan.qingyue.data.parser.BookDocumentBuilder
 import com.azhan.qingyue.data.parser.EpubParser
+import com.azhan.qingyue.data.parser.MarkdownParser
+import com.azhan.qingyue.data.parser.MobiParser
+import com.azhan.qingyue.data.parser.TextDecoding
 import com.azhan.qingyue.data.parser.TxtParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -41,10 +44,15 @@ class BookRepository(
         documentCache.get(book.id)?.let { return@withContext it }
 
         val bytes = readBytes(Uri.parse(book.documentUri), book.fileName)
-        val content = if (book.format.equals("epub", ignoreCase = true)) {
-            EpubParser.parse(bytes, book.title)
-        } else {
-            TxtParser.parse(bytes, book.title)
+        val content = when (book.format.lowercase()) {
+            "epub" -> EpubParser.parse(bytes, book.title)
+            "mobi" -> MobiParser.parse(bytes, book.title)
+            "md", "markdown" -> MarkdownParser.parse(
+                TextDecoding.decode(bytes),
+                book.title,
+            )
+
+            else -> TxtParser.parse(bytes, book.title)
         }
 
         val document = BookDocumentBuilder.build(content)

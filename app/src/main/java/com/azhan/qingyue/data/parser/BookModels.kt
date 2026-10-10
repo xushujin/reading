@@ -1,9 +1,51 @@
 package com.azhan.qingyue.data.parser
 
+/** 块级样式。TXT / EPUB / MOBI 基本只用 BODY 和标题，Markdown 会用满。 */
+enum class BlockStyle {
+    BODY,
+    H1, H2, H3, H4, H5, H6,
+    QUOTE,
+    LIST_ITEM,
+    ORDERED_ITEM,
+    CODE,
+    /** 水平线，本身没有文字。 */
+    RULE,
+    ;
+
+    /** 是否是标题类块（H1–H6）。 */
+    fun isHeading(): Boolean = this == H1 || this == H2 || this == H3 ||
+        this == H4 || this == H5 || this == H6
+}
+
+/** 行内样式。 */
+enum class InlineStyle { BOLD, ITALIC, CODE, STRIKE }
+
+/** 行内样式区间，下标相对所在段落的 text。 */
+data class InlineSpan(
+    val start: Int,
+    val end: Int,
+    val style: InlineStyle,
+)
+
+/**
+ * 已解析好的富文本块。
+ *
+ * Markdown 这类格式在「切段」之前就带着样式信息，所以让它先产出块列表，
+ * 再交给 [BookDocumentBuilder] 转成段落流 —— 这样 TXT / EPUB / MOBI 那套
+ * 纯文本切分逻辑不用为它让路。
+ */
+data class RichBlock(
+    val text: String,
+    val blockStyle: BlockStyle = BlockStyle.BODY,
+    val spans: List<InlineSpan> = emptyList(),
+)
+
 /** 解析后的章节。TXT 里可能只有一个「无标题章节」。 */
 data class Chapter(
     val title: String,
     val text: String,
+    /** 非空时优先用它，[text] 仅作兜底。 */
+    val blocks: List<RichBlock> = emptyList(),
 )
 
 /** 解析器的统一输出。 */
@@ -20,6 +62,8 @@ data class Paragraph(
     val startOffset: Int,
     val chapterIndex: Int,
     val isHeading: Boolean,
+    val blockStyle: BlockStyle = BlockStyle.BODY,
+    val spans: List<InlineSpan> = emptyList(),
 )
 
 /**
@@ -90,12 +134,36 @@ object BookDocumentBuilder {
 
             val heading = chapter.title.trim()
             if (heading.isNotEmpty()) {
-                paragraphs += Paragraph(heading, offset, index, isHeading = true)
+                // 章节标题在正文里也占一段，用 H2 样式（居中、略大）而不是普通正文
+                paragraphs += Paragraph(
+                    text = heading,
+                    startOffset = offset,
+                    chapterIndex = index,
+                    isHeading = true,
+                    blockStyle = BlockStyle.H2,
+                )
                 offset += heading.length + 1
             }
-            for (line in splitParagraphs(chapter.text)) {
-                paragraphs += Paragraph(line, offset, index, isHeading = false)
-                offset += line.length + 1
+
+            if (chapter.blocks.isNotEmpty()) {
+                // 富文本块（Markdown）：样式已经解析好，直接转段落，不再按行切
+                for (block in chapter.blocks) {
+                    if (block.text.isEmpty() && block.blockStyle != BlockStyle.RULE) continue
+                    paragraphs += Paragraph(
+                        text = block.text,
+                        startOffset = offset,
+                        chapterIndex = index,
+                        isHeading = block.blockStyle.isHeading(),
+                        blockStyle = block.blockStyle,
+                        spans = block.spans,
+                    )
+                    offset += block.text.length + 1
+                }
+            } else {
+                for (line in splitParagraphs(chapter.text)) {
+                    paragraphs += Paragraph(line, offset, index, isHeading = false)
+                    offset += line.length + 1
+                }
             }
         }
 
