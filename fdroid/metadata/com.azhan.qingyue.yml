@@ -1,0 +1,38 @@
+# F-Droid 构建配置
+#
+# 用法：把本文件复制到 fdroiddata 仓库的 metadata/ 目录下，
+# 即 metadata/com.azhan.qingyue.yml
+#
+# 字段说明见 https://f-droid.org/docs/Build_Metadata_Reference/
+
+Categories:
+  - Reading
+
+License: Apache-2.0
+
+AuthorName: xushujin
+SourceCode: https://github.com/xushujin/reading
+IssueTracker: https://github.com/xushujin/reading/issues
+Changelog: https://github.com/xushujin/reading/releases
+
+AutoName: 轻阅
+
+RepoType: git
+Repo: https://github.com/xushujin/reading.git
+
+# 从源码构建。本项目在无签名材料时也能构建成功（产出未签名 APK），
+# F-Droid 会用它自己的密钥签名，所以这里不需要任何签名配置。
+Builds:
+  - versionName: 1.0.0
+    versionCode: 1
+    commit: v1.0
+    subdir: app
+    gradle:
+      - yes
+
+# 自动跟踪新 tag：以后只要打 tag 并推送，F-Droid 就会自动检测到新版本。
+# 与本项目 .github/workflows/build-apk.yml 的触发方式一致。
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.0.0
+CurrentVersionCode: 1

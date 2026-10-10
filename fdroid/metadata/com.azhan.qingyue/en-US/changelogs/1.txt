@@ -1,0 +1,7 @@
+First release.
+
+* Supports four formats: TXT, EPUB, MOBI and Markdown
+* Two reading modes: continuous scrolling and page turning
+* Five themes with adjustable typography
+* Auto-scroll and auto page-turn
+* Dual-gate screen protection: inactivity timeout plus a hard limit on continuous screen-on time

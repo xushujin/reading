@@ -1,0 +1,27 @@
+QingYue is a lightweight, fully offline ebook reader. No account, no network, no ads.
+
+<b>Supported formats</b>
+* TXT — automatic encoding detection (UTF-8 / GB18030), chapter splitting by heading patterns
+* EPUB — chapters taken from the spine, cover extracted and cached
+* MOBI — Palm Database container with PalmDOC LZ77 decompression. DRM-protected files are not supported
+* Markdown — really rendered: headings, lists, blockquotes, fenced code blocks, horizontal rules, and inline bold / italic / code / strikethrough / links
+
+<b>Reading</b>
+* Two reading modes: continuous scrolling and page turning
+* Reading position is stored as a character offset, so switching modes or changing font size never loses your place
+* Five themes: parchment, daylight, eye-care green, night, pure black
+* Adjustable font size, line height, paragraph spacing and side margins
+* Chapter list for quick navigation
+
+<b>Hands-free</b>
+* Auto-scroll (0.3x–7x) or auto page-turn
+* Touching the screen pauses it for two seconds, then resumes automatically
+
+<b>Screen protection</b>
+* Keeps the screen on while reading, but releases it after a configurable period of inactivity — so falling asleep mid-chapter does not leave the screen lit all night
+* A separate hard limit stops auto-scrolling and releases the wake lock after a configurable period. This second guard is necessary: auto-scroll means you are not touching the screen at all, so an inactivity timer alone can never trigger
+
+<b>Privacy</b>
+* Requests no permissions at all — not even INTERNET
+* Book folders are chosen through the system file picker (SAF) and stored as a persistable URI grant
+* Everything stays on your device
