@@ -1,0 +1,69 @@
+package com.azhan.qingyue.data.local
+
+import androidx.room.Embedded
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+import androidx.room.Relation
+
+/** 书架：对应一个用户添加的本地文件夹。 */
+@Entity(tableName = "shelves")
+data class ShelfEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    /** 文件夹名，直接作为列表分组标题。 */
+    val name: String,
+    /** SAF 持久化授权的 tree uri。 */
+    val treeUri: String,
+    val addedAt: Long = System.currentTimeMillis(),
+    val lastScanAt: Long = 0L,
+)
+
+/**
+ * 书籍。documentUri 全局唯一 —— 同一文件被父子目录同时覆盖时只入库一次，
+ * 归属首次添加的那个书架，避免重复条目和进度分裂。
+ */
+@Entity(
+    tableName = "books",
+    foreignKeys = [
+        ForeignKey(
+            entity = ShelfEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["shelfId"],
+            onDelete = ForeignKey.CASCADE,
+        )
+    ],
+    indices = [
+        Index("shelfId"),
+        Index(value = ["documentUri"], unique = true),
+    ],
+)
+data class BookEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    val shelfId: Long,
+    val documentUri: String,
+    val fileName: String,
+    val title: String,
+    val author: String? = null,
+    /** "txt" / "epub" */
+    val format: String,
+    /** 封面缓存的本地绝对路径，TXT 一般为 null。 */
+    val coverPath: String? = null,
+    val charCount: Long = 0L,
+    val addedAt: Long = System.currentTimeMillis(),
+    val lastReadAt: Long = 0L,
+    /** 0f..1f */
+    val progress: Float = 0f,
+    /** 上次阅读位置，以正文字符偏移表示，与字号/行距无关，换设备也准。 */
+    val lastOffset: Int = 0,
+    val finished: Boolean = false,
+    /** 元数据是否已解析（EPUB 需要解包才能拿到书名/作者/封面）。 */
+    val metaLoaded: Boolean = false,
+)
+
+/** 书架分组查询结果。 */
+data class ShelfWithBooks(
+    @Embedded val shelf: ShelfEntity,
+    @Relation(parentColumn = "id", entityColumn = "shelfId")
+    val books: List<BookEntity>,
+)
