@@ -124,6 +124,10 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG 已存在，覆盖资源"
             gh release upload "$TAG" "$ASSET" --clobber
+            # 删掉 tag 再重打时，GitHub 会把原 Release 降级成 draft。
+            # 只 upload 不发布的话，Release 会一直停在草稿状态、外部看不见，
+            # 所以这里显式取消草稿。
+            gh release edit "$TAG" --draft=false
           else
             echo "创建 Release $TAG"
             gh release create "$TAG" "$ASSET" --title "轻阅 $TAG" --generate-notes
