@@ -18,6 +18,10 @@ interface LibraryDao {
     @Query("SELECT * FROM books WHERE lastReadAt > 0 ORDER BY lastReadAt DESC LIMIT :limit")
     fun observeRecentBooks(limit: Int): Flow<List<BookEntity>>
 
+    /** 收藏列表：读过的按最近阅读排前面，没读过的按书名。 */
+    @Query("SELECT * FROM books WHERE isFavorite = 1 ORDER BY lastReadAt DESC, title ASC")
+    fun observeFavoriteBooks(): Flow<List<BookEntity>>
+
     @Query("SELECT * FROM books WHERE id = :id")
     fun observeBook(id: Long): Flow<BookEntity?>
 
@@ -77,6 +81,9 @@ interface LibraryDao {
 
     @Query("UPDATE shelves SET lastScanAt = :at WHERE id = :id")
     suspend fun touchShelf(id: Long, at: Long)
+
+    @Query("UPDATE books SET isFavorite = :favorite WHERE id = :id")
+    suspend fun setFavorite(id: Long, favorite: Boolean)
 
     @Query("DELETE FROM shelves WHERE id = :id")
     suspend fun deleteShelf(id: Long)

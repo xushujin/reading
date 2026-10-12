@@ -31,6 +31,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -97,6 +99,8 @@ fun BookshelfScreen(
     val busy by viewModel.busy.collectAsState()
     val message by viewModel.message.collectAsState()
     val expandedShelves by viewModel.expandedShelves.collectAsState()
+    val favorites by viewModel.favorites.collectAsState()
+    val favoritesExpanded by viewModel.favoritesExpanded.collectAsState()
     val snackbarHost = remember { SnackbarHostState() }
 
     val pickFolder = rememberLauncherForActivityResult(
@@ -139,11 +143,33 @@ fun BookshelfScreen(
                         }
                     }
 
+                    // 收藏跨书架，所以单独成组，不归在任何文件夹下
+                    if (favorites.isNotEmpty()) {
+                        item(key = "favorites-header") {
+                            GroupHeader(
+                                name = "收藏",
+                                count = favorites.size,
+                                expanded = favoritesExpanded,
+                                onToggle = { viewModel.toggleFavoritesExpanded() },
+                            )
+                        }
+                        if (favoritesExpanded) {
+                            items(favorites, key = { "favorite-${it.id}" }) { book ->
+                                BookRow(
+                                    book = book,
+                                    onClick = { onOpenBook(book.id) },
+                                    onToggleFavorite = { viewModel.toggleFavorite(book) },
+                                )
+                            }
+                        }
+                    }
+
                     shelves.forEach { shelf ->
                         val expanded = shelf.shelf.id in expandedShelves
                         item(key = "shelf-${shelf.shelf.id}") {
-                            ShelfHeader(
-                                shelf = shelf,
+                            GroupHeader(
+                                name = shelf.shelf.name,
+                                count = shelf.books.size,
                                 expanded = expanded,
                                 onToggle = { viewModel.toggleShelf(shelf.shelf.id) },
                                 onRescan = { viewModel.rescan(shelf.shelf.id) },
@@ -154,7 +180,11 @@ fun BookshelfScreen(
                         }
                         if (expanded) {
                             items(shelf.books, key = { "book-${it.id}" }) { book ->
-                                BookRow(book = book, onClick = { onOpenBook(book.id) })
+                                BookRow(
+                                    book = book,
+                                    onClick = { onOpenBook(book.id) },
+                                    onToggleFavorite = { viewModel.toggleFavorite(book) },
+                                )
                             }
                         }
                     }
@@ -295,19 +325,24 @@ private fun GroupLabel(text: String) {
     }
 }
 
+/**
+ * 分组头。目录分组与收藏分组共用 ——
+ * 收藏没有「重新扫描 / 移除」这类操作，传 null 就不显示菜单。
+ */
 @Composable
-private fun ShelfHeader(
-    shelf: ShelfWithBooks,
+private fun GroupHeader(
+    name: String,
+    count: Int,
     expanded: Boolean,
     onToggle: () -> Unit,
-    onRescan: () -> Unit,
-    onRemove: () -> Unit,
+    onRescan: (() -> Unit)? = null,
+    onRemove: (() -> Unit)? = null,
 ) {
     val palette = LocalReaderPalette.current
     var menuOpen by remember { mutableStateOf(false) }
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
-        label = "shelfArrow",
+        label = "groupArrow",
     )
 
     Row(
@@ -329,7 +364,7 @@ private fun ShelfHeader(
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            text = shelf.shelf.name,
+            text = name,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             color = palette.textPrimary,
@@ -338,7 +373,7 @@ private fun ShelfHeader(
             modifier = Modifier.weight(1f),
         )
         Text(
-            text = "${shelf.books.size}",
+            text = "$count",
             fontSize = 12.sp,
             color = palette.textSecondary,
         )
@@ -351,33 +386,39 @@ private fun ShelfHeader(
                 .size(18.dp)
                 .rotate(arrowRotation),
         )
-        Box {
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(
-                    imageVector = Icons.Rounded.MoreVert,
-                    contentDescription = "更多操作",
-                    tint = palette.textSecondary,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            DropdownMenu(
-                expanded = menuOpen,
-                onDismissRequest = { menuOpen = false },
-            ) {
-                DropdownMenuItem(
-                    text = { Text("重新扫描") },
-                    onClick = {
-                        menuOpen = false
-                        onRescan()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("移除书架") },
-                    onClick = {
-                        menuOpen = false
-                        onRemove()
-                    },
-                )
+        if (onRescan != null || onRemove != null) {
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = "更多操作",
+                        tint = palette.textSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                ) {
+                    if (onRescan != null) {
+                        DropdownMenuItem(
+                            text = { Text("重新扫描") },
+                            onClick = {
+                                menuOpen = false
+                                onRescan()
+                            },
+                        )
+                    }
+                    if (onRemove != null) {
+                        DropdownMenuItem(
+                            text = { Text("移除书架") },
+                            onClick = {
+                                menuOpen = false
+                                onRemove()
+                            },
+                        )
+                    }
+                }
             }
         }
     }
@@ -419,7 +460,11 @@ private fun RecentRow(books: List<BookEntity>, onOpenBook: (Long) -> Unit) {
 }
 
 @Composable
-private fun BookRow(book: BookEntity, onClick: () -> Unit) {
+private fun BookRow(
+    book: BookEntity,
+    onClick: () -> Unit,
+    onToggleFavorite: () -> Unit,
+) {
     val palette = LocalReaderPalette.current
     NeuSurface(
         modifier = Modifier
@@ -457,6 +502,19 @@ private fun BookRow(book: BookEntity, onClick: () -> Unit) {
                 )
                 Spacer(Modifier.height(9.dp))
                 NeuProgress(progress = book.progress)
+            }
+            // 星标自己消费点击事件，不会连带触发整行的「打开这本书」
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    imageVector = if (book.isFavorite) {
+                        Icons.Rounded.Star
+                    } else {
+                        Icons.Rounded.StarBorder
+                    },
+                    contentDescription = if (book.isFavorite) "取消收藏" else "加入收藏",
+                    tint = if (book.isFavorite) palette.accent else palette.textSecondary,
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
     }

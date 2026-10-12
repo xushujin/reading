@@ -1,0 +1,7 @@
+Added a favourites list.
+
+* Star any book from the shelf to add it to favourites
+* The favourites group appears at the top of the home screen, collecting books
+  across all folders. It is expanded by default, since favourites are a small
+  set you picked on purpose
+* Database migration included, so existing shelves and reading progress are kept

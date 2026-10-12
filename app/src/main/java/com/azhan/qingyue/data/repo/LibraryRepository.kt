@@ -47,6 +47,13 @@ class LibraryRepository(
     /** 首页「最近阅读」只展示最近 3 本，多了会把纵向空间挤掉。 */
     fun observeRecent(limit: Int = 3): Flow<List<BookEntity>> = dao.observeRecentBooks(limit)
 
+    /** 收藏列表。收藏是跨书架的标记，所以这里单独查而不是按 shelf 分组。 */
+    fun observeFavorites(): Flow<List<BookEntity>> = dao.observeFavoriteBooks()
+
+    suspend fun setFavorite(bookId: Long, favorite: Boolean) = withContext(Dispatchers.IO) {
+        dao.setFavorite(bookId, favorite)
+    }
+
     /** 添加一个本地文件夹为书架。重复添加同一目录会直接重扫而不是建第二条记录。 */
     suspend fun addShelf(treeUri: Uri): AddShelfResult = withContext(Dispatchers.IO) {
         val uriString = treeUri.toString()

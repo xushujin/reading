@@ -1,5 +1,6 @@
 package com.azhan.qingyue.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -59,6 +60,15 @@ data class BookEntity(
     val finished: Boolean = false,
     /** 元数据是否已解析（EPUB 需要解包才能拿到书名/作者/封面）。 */
     val metaLoaded: Boolean = false,
+    /**
+     * 是否收藏。收藏的书会在首页「收藏」分组里单独列一份。
+     *
+     * `defaultValue` 必须显式声明且与 MIGRATION_1_2 的 SQL 一致 ——
+     * `ALTER TABLE ADD COLUMN` 对 NOT NULL 列必须带 DEFAULT，而 Room 校验迁移时
+     * 会比对实体 schema 的默认值。两边不一致会在升级时抛 IllegalStateException。
+     */
+    @ColumnInfo(defaultValue = "0")
+    val isFavorite: Boolean = false,
 )
 
 /** 书架分组查询结果。 */
