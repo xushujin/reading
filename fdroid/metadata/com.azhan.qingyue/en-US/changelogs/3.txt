@@ -1,0 +1,5 @@
+Fixed an inconsistency between the two theme pickers.
+
+* The reader theme selector on the Settings screen used plain text buttons, while
+  the one in the reading panel showed colour swatches. Both now share a single
+  component, so the same setting looks and behaves the same everywhere

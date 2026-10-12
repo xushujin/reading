@@ -1,7 +1,6 @@
 package com.azhan.qingyue.ui.reader
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -31,8 +29,8 @@ import com.azhan.qingyue.data.prefs.ReaderTheme
 import com.azhan.qingyue.ui.neu.NeuButton
 import com.azhan.qingyue.ui.neu.NeuSegmented
 import com.azhan.qingyue.ui.neu.NeuSlider
-import com.azhan.qingyue.ui.neu.neuInner
 import com.azhan.qingyue.ui.theme.LocalReaderPalette
+import com.azhan.qingyue.ui.theme.ThemeSwatch
 import com.azhan.qingyue.ui.theme.palette
 
 @Composable
@@ -138,52 +136,6 @@ fun ReaderSettingsSheet(
 
             Spacer(Modifier.height(14.dp))
         }
-    }
-}
-
-@Composable
-private fun ThemeSwatch(
-    theme: ReaderTheme,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val palette = LocalReaderPalette.current
-    val swatch = theme.palette()
-
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .then(
-                    if (selected) Modifier.neuInner(23.dp, palette, 3.dp) else Modifier,
-                )
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClick,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(if (selected) 30.dp else 34.dp)
-                    .background(swatch.background, CircleShape)
-                    .then(
-                        if (selected) {
-                            Modifier.border(2.dp, palette.accent, CircleShape)
-                        } else {
-                            Modifier
-                        },
-                    ),
-            )
-        }
-        Spacer(Modifier.height(5.dp))
-        Text(
-            text = theme.label,
-            fontSize = 11.sp,
-            color = if (selected) palette.accent else palette.textSecondary,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        )
     }
 }
 

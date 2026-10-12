@@ -48,6 +48,7 @@ import com.azhan.qingyue.ui.neu.NeuSegmented
 import com.azhan.qingyue.ui.neu.NeuSlider
 import com.azhan.qingyue.ui.neu.NeuSurface
 import com.azhan.qingyue.ui.theme.LocalReaderPalette
+import com.azhan.qingyue.ui.theme.ThemeSwatch
 import kotlinx.coroutines.launch
 
 @Composable
@@ -194,26 +195,18 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                         color = palette.textSecondary,
                     )
                     Spacer(Modifier.height(10.dp))
+                    // 与阅读页的排版面板共用同一个 ThemeSwatch，
+                    // 两处各写一套的话会慢慢长得不一样（而且不会编译报错）
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
                     ) {
                         ReaderTheme.entries.forEach { theme ->
-                            val active = theme == settings.theme
-                            NeuButton(
-                                modifier = Modifier.weight(1f),
-                                cornerRadius = 12.dp,
-                                elevation = 4.dp,
-                                highlighted = active,
+                            ThemeSwatch(
+                                theme = theme,
+                                selected = theme == settings.theme,
                                 onClick = { update { it.copy(theme = theme) } },
-                            ) {
-                                Text(
-                                    text = theme.label,
-                                    fontSize = 12.sp,
-                                    color = if (active) androidx.compose.ui.graphics.Color.White
-                                    else palette.textPrimary,
-                                )
-                            }
+                            )
                         }
                     }
                 }
