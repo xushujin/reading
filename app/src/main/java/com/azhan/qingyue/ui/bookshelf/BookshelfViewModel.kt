@@ -5,12 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.azhan.qingyue.data.local.BookEntity
 import com.azhan.qingyue.data.local.ShelfWithBooks
+import com.azhan.qingyue.data.local.matchesSearch
 import com.azhan.qingyue.data.repo.BookRepository
 import com.azhan.qingyue.data.repo.LibraryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -41,6 +43,31 @@ class BookshelfViewModel(
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    /** 搜索关键词。空串表示未在搜索，首页照常显示分组。 */
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    /**
+     * 搜索结果：跨书架在**所有**已入库的书里匹配书名 / 文件名 / 作者。
+     *
+     * 用 combine 从 [shelves] 派生，而不是另开一条数据库查询 ——
+     * 书本来就在 shelves 里，再查一次等于把同一份数据取两遍，
+     * 还得额外操心两边不同步（比如刚收藏完、刚扫完目录）。
+     */
+    val searchResults: StateFlow<List<BookEntity>> =
+        combine(shelves, _searchQuery) { groups, query ->
+            if (query.isBlank()) {
+                // 空查询直接短路，不必遍历全部书籍
+                emptyList()
+            } else {
+                groups.asSequence()
+                    .flatMap { it.books.asSequence() }
+                    .filter { it.matchesSearch(query) }
+                    .sortedBy { it.title }
+                    .toList()
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -110,6 +137,14 @@ class BookshelfViewModel(
         viewModelScope.launch {
             library.setFavorite(book.id, !book.isFavorite)
         }
+    }
+
+    fun onSearchQueryChange(value: String) {
+        _searchQuery.value = value
+    }
+
+    fun clearSearch() {
+        _searchQuery.value = ""
     }
 
     fun consumeMessage() {

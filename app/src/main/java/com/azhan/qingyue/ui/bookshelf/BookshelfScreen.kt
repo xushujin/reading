@@ -25,11 +25,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
@@ -55,9 +58,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -101,6 +106,8 @@ fun BookshelfScreen(
     val expandedShelves by viewModel.expandedShelves.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
     val favoritesExpanded by viewModel.favoritesExpanded.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
     val snackbarHost = remember { SnackbarHostState() }
 
     val pickFolder = rememberLauncherForActivityResult(
@@ -132,29 +139,25 @@ fun BookshelfScreen(
             if (shelves.isEmpty()) {
                 EmptyShelf(onAdd = { pickFolder.launch(null) })
             } else {
+                SearchField(
+                    query = searchQuery,
+                    onQueryChange = viewModel::onSearchQueryChange,
+                    onClear = viewModel::clearSearch,
+                )
+
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 28.dp),
                 ) {
-                    if (recent.isNotEmpty()) {
-                        item(key = "recent-label") { GroupLabel("最近阅读") }
-                        item(key = "recent-row") {
-                            RecentRow(books = recent, onOpenBook = onOpenBook)
-                        }
-                    }
-
-                    // 收藏跨书架，所以单独成组，不归在任何文件夹下
-                    if (favorites.isNotEmpty()) {
-                        item(key = "favorites-header") {
-                            GroupHeader(
-                                name = "收藏",
-                                count = favorites.size,
-                                expanded = favoritesExpanded,
-                                onToggle = { viewModel.toggleFavoritesExpanded() },
-                            )
-                        }
-                        if (favoritesExpanded) {
-                            items(favorites, key = { "favorite-${it.id}" }) { book ->
+                    if (searchQuery.isNotBlank()) {
+                        // 搜索态：跨书架扁平列出命中结果，不再按文件夹分组
+                        if (searchResults.isEmpty()) {
+                            item(key = "search-empty") { EmptySearchHint(searchQuery) }
+                        } else {
+                            item(key = "search-label") {
+                                GroupLabel("找到 ${searchResults.size} 本")
+                            }
+                            items(searchResults, key = { "search-${it.id}" }) { book ->
                                 BookRow(
                                     book = book,
                                     onClick = { onOpenBook(book.id) },
@@ -162,29 +165,57 @@ fun BookshelfScreen(
                                 )
                             }
                         }
-                    }
-
-                    shelves.forEach { shelf ->
-                        val expanded = shelf.shelf.id in expandedShelves
-                        item(key = "shelf-${shelf.shelf.id}") {
-                            GroupHeader(
-                                name = shelf.shelf.name,
-                                count = shelf.books.size,
-                                expanded = expanded,
-                                onToggle = { viewModel.toggleShelf(shelf.shelf.id) },
-                                onRescan = { viewModel.rescan(shelf.shelf.id) },
-                                onRemove = {
-                                    viewModel.removeShelf(shelf.shelf.id, shelf.shelf.name)
-                                },
-                            )
+                    } else {
+                        if (recent.isNotEmpty()) {
+                            item(key = "recent-label") { GroupLabel("最近阅读") }
+                            item(key = "recent-row") {
+                                RecentRow(books = recent, onOpenBook = onOpenBook)
+                            }
                         }
-                        if (expanded) {
-                            items(shelf.books, key = { "book-${it.id}" }) { book ->
-                                BookRow(
-                                    book = book,
-                                    onClick = { onOpenBook(book.id) },
-                                    onToggleFavorite = { viewModel.toggleFavorite(book) },
+
+                        // 收藏跨书架，所以单独成组，不归在任何文件夹下
+                        if (favorites.isNotEmpty()) {
+                            item(key = "favorites-header") {
+                                GroupHeader(
+                                    name = "收藏",
+                                    count = favorites.size,
+                                    expanded = favoritesExpanded,
+                                    onToggle = { viewModel.toggleFavoritesExpanded() },
                                 )
+                            }
+                            if (favoritesExpanded) {
+                                items(favorites, key = { "favorite-${it.id}" }) { book ->
+                                    BookRow(
+                                        book = book,
+                                        onClick = { onOpenBook(book.id) },
+                                        onToggleFavorite = { viewModel.toggleFavorite(book) },
+                                    )
+                                }
+                            }
+                        }
+
+                        shelves.forEach { shelf ->
+                            val expanded = shelf.shelf.id in expandedShelves
+                            item(key = "shelf-${shelf.shelf.id}") {
+                                GroupHeader(
+                                    name = shelf.shelf.name,
+                                    count = shelf.books.size,
+                                    expanded = expanded,
+                                    onToggle = { viewModel.toggleShelf(shelf.shelf.id) },
+                                    onRescan = { viewModel.rescan(shelf.shelf.id) },
+                                    onRemove = {
+                                        viewModel.removeShelf(shelf.shelf.id, shelf.shelf.name)
+                                    },
+                                )
+                            }
+                            if (expanded) {
+                                items(shelf.books, key = { "book-${it.id}" }) { book ->
+                                    BookRow(
+                                        book = book,
+                                        onClick = { onOpenBook(book.id) },
+                                        onToggleFavorite = { viewModel.toggleFavorite(book) },
+                                    )
+                                }
                             }
                         }
                     }
@@ -517,6 +548,87 @@ private fun BookRow(
                 )
             }
         }
+    }
+}
+
+/** 搜索输入框。拟态外观，与整页风格保持一致。 */
+@Composable
+private fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    val palette = LocalReaderPalette.current
+
+    NeuSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 4.dp),
+        cornerRadius = 16.dp,
+        elevation = 4.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Search,
+                contentDescription = null,
+                tint = palette.textSecondary,
+                modifier = Modifier.size(17.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 14.sp, color = palette.textPrimary),
+                cursorBrush = SolidColor(palette.accent),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 11.dp),
+                decorationBox = { inner ->
+                    if (query.isEmpty()) {
+                        Text(
+                            text = "搜索书名、作者",
+                            fontSize = 14.sp,
+                            color = palette.textSecondary,
+                        )
+                    }
+                    inner()
+                },
+            )
+            if (query.isNotEmpty()) {
+                IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "清除搜索",
+                        tint = palette.textSecondary,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 搜索无结果时的提示。 */
+@Composable
+private fun EmptySearchHint(keyword: String) {
+    val palette = LocalReaderPalette.current
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 64.dp, start = 36.dp, end = 36.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "没有找到与「$keyword」匹配的书",
+            fontSize = 13.sp,
+            color = palette.textSecondary,
+            textAlign = TextAlign.Center,
+            lineHeight = 20.sp,
+        )
     }
 }
 

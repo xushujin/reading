@@ -1,0 +1,6 @@
+Added search.
+
+* A search box at the top of the shelf filters books as you type
+* Matches title, file name and author, case-insensitively
+* Results are listed across all folders, so you no longer have to remember
+  which folder a book was in
