@@ -624,11 +624,18 @@ private fun PagedReader(
         }
 
         // 自动翻页。
-        LaunchedEffect(autoScrolling, pagerState.currentPage, loaded) {
+        //
+        // key 里**不能**放 `loaded`：收起工具栏会触发重新分页，而分页一变这个
+        // effect 就重启、正在进行的 animateScrollToPage 被取消 —— pager 停在
+        // 两页中间，屏幕上就成了「上半页 + 下半页」。分页只用来判断是否到末尾，
+        // 用 rememberUpdatedState 读最新值即可，不必当 key。
+        val pagesState = rememberUpdatedState(loaded)
+        LaunchedEffect(autoScrolling, pagerState.currentPage) {
             if (!autoScrolling) return@LaunchedEffect
             delay(autoPageIntervalMillis(settings.autoScrollSpeed))
+            val current = pagesState.value
             val next = pagerState.currentPage + 1
-            if (next <= loaded.lastIndex) {
+            if (next <= current.lastIndex) {
                 pagerState.animateScrollToPage(next)
             } else {
                 onReachEnd()

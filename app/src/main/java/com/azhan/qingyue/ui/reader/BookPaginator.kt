@@ -23,6 +23,8 @@ import com.azhan.qingyue.data.parser.BookDocument
 import com.azhan.qingyue.data.parser.InlineSpan
 import com.azhan.qingyue.data.parser.InlineStyle
 import com.azhan.qingyue.data.prefs.ReaderSettings
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * 正文样式。
@@ -162,7 +164,16 @@ class BookPaginator(
     private val density: Density,
 ) {
 
-    fun paginate(document: BookDocument, widthPx: Int, heightPx: Int): List<BookPage> {
+    /**
+     * 全量分页。
+     *
+     * 是 `suspend` 且循环里带 [ensureActive] 的，原因很实际：
+     * 工具栏显隐会让可用高度连续变化，[produceState] 的 key 每帧都在变、
+     * 于是分页被反复重启。而 `measurer.measure` 本身不响应取消 ——
+     * 旧任务会一路算到底，和最后一次抢 CPU，把真正的分页拖慢成秒级。
+     * 加了取消检查，过期的分页会立刻让路。
+     */
+    suspend fun paginate(document: BookDocument, widthPx: Int, heightPx: Int): List<BookPage> {
         if (widthPx <= 0 || heightPx <= 0) return emptyList()
 
         // 留 2dp 余量：字体度量与实际绘制之间可能有亚像素差异，
@@ -184,6 +195,31 @@ class BookPaginator(
         }
 
         for (paragraph in document.paragraphs) {
+            // 每个段落检查一次取消：过期的分页立即让路给新的
+            currentCoroutineContext().ensureActive()
+
+            // 水平线没有文字，下面的 while 进不去，必须单独计入高度 ——
+            // 否则它占的那点空间不算进分页，渲染时却会真的画出来，
+            // 累积几页之后就会出现「明明还有空间却提前翻页」。
+            if (paragraph.blockStyle == BlockStyle.RULE) {
+                val spacingPx = with(density) {
+                    readerSpacingBefore(settings, paragraph.blockStyle).toPx()
+                }
+                val rulePx = with(density) { 1.dp.toPx() }
+                if (usedHeight + spacingPx + rulePx > pageHeight) flush()
+                if (slices.isEmpty()) pageStart = paragraph.startOffset
+                usedHeight += spacingPx + rulePx
+                slices += PageSlice(
+                    text = "",
+                    startOffset = paragraph.startOffset,
+                    chapterIndex = paragraph.chapterIndex,
+                    isHeading = false,
+                    isParagraphStart = false,
+                    blockStyle = BlockStyle.RULE,
+                )
+                continue
+            }
+
             var remaining = paragraph.text
             var consumed = 0
             var isParagraphStart = true

@@ -1,0 +1,11 @@
+Fixed two problems in page-turning mode.
+
+* Auto page turn could stop halfway between two pages, so the screen showed the
+  bottom of one page above the top of the next. Re-pagination (which happens when
+  the toolbars hide) used to cancel the turn animation mid-flight
+* Hiding the toolbars could leave a large blank area at the bottom of the page
+  while pagination was being recomputed. Pagination is now cancellable, so a
+  superseded pass stops immediately instead of competing for CPU with the one
+  that actually matters
+* Horizontal rules were not counted while paginating, so pages broke slightly
+  earlier than necessary
