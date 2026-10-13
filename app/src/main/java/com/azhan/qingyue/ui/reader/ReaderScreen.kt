@@ -1,5 +1,6 @@
 package com.azhan.qingyue.ui.reader
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -382,6 +383,16 @@ private fun ReadingView(
             )
         }
 
+        // 面板开着时，系统返回（含手势返回）应当先关面板，而不是退出阅读页。
+        // 这两个面板是页内浮层、不是独立的导航目的地 —— 不拦的话返回键会
+        // 一路 pop 掉整个阅读页，直接回到首页。
+        BackHandler(enabled = showSettingsPanel || showChapters) {
+            when {
+                showSettingsPanel -> showSettingsPanel = false
+                showChapters -> showChapters = false
+            }
+        }
+
         if (showLimitDialog) {
             AlertDialog(
                 onDismissRequest = { showLimitDialog = false },
@@ -625,20 +636,29 @@ private fun PagedReader(
 
         // 自动翻页。
         //
-        // key 里**不能**放 `loaded`：收起工具栏会触发重新分页，而分页一变这个
-        // effect 就重启、正在进行的 animateScrollToPage 被取消 —— pager 停在
-        // 两页中间，屏幕上就成了「上半页 + 下半页」。分页只用来判断是否到末尾，
-        // 用 rememberUpdatedState 读最新值即可，不必当 key。
+        // key 里**只能**放 autoScrolling —— 这是踩过两次的坑：
+        //   · 放 `pagerState.currentPage`：动画过半时 currentPage 就已经切到下一页，
+        //     effect 随之重启、animateScrollToPage 被取消，pager 停在 offset 0.5，
+        //     屏幕上就成了「左半页 + 右半页」；
+        //   · 放 `loaded`：收起工具栏会触发重新分页，同样打断动画。
+        // 改成 while 循环后，翻页节奏由 animateScrollToPage 自身挂起、串行驱动，
+        // 页数与间隔都用 State 读取，不参与重启判定。
         val pagesState = rememberUpdatedState(loaded)
-        LaunchedEffect(autoScrolling, pagerState.currentPage) {
+        val intervalState = rememberUpdatedState(
+            autoPageIntervalMillis(settings.autoScrollSpeed),
+        )
+        LaunchedEffect(autoScrolling) {
             if (!autoScrolling) return@LaunchedEffect
-            delay(autoPageIntervalMillis(settings.autoScrollSpeed))
-            val current = pagesState.value
-            val next = pagerState.currentPage + 1
-            if (next <= current.lastIndex) {
-                pagerState.animateScrollToPage(next)
-            } else {
-                onReachEnd()
+            while (isActive) {
+                delay(intervalState.value)
+                val pages = pagesState.value
+                val next = pagerState.currentPage + 1
+                if (next <= pages.lastIndex) {
+                    pagerState.animateScrollToPage(next)
+                } else {
+                    onReachEnd()
+                    break
+                }
             }
         }
 

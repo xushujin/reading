@@ -1,0 +1,10 @@
+Fixed auto page turn and back navigation in the reader.
+
+* Auto page turn could stop between two pages, showing the right half of one page
+  beside the left half of the next. The turn animation was being cancelled halfway:
+  the effect that drives it keyed on the current page, which changes mid-animation,
+  so it restarted itself and killed its own animation. It now runs as a loop that
+  only restarts when auto page turn is toggled
+* Pressing back (including the back gesture) while the reading settings or chapter
+  panel was open used to leave the reader and return to the library. Back now closes
+  the panel first
