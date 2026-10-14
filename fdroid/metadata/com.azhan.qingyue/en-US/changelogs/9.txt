@@ -1,0 +1,9 @@
+Added text highlights, and a single place to manage all your favourites.
+
+* Long-press a paragraph while reading to save it as a highlight
+* A new Favourites screen (star icon on the shelf) collects both kinds of
+  favourites in one place, split into two tabs: highlights and books
+* Tap a highlight to jump back to where it came from in the book; it stores the
+  whole paragraph even when the paragraph is split across two pages
+* Highlights survive removing a book from the shelf, since a highlight is worth
+  keeping on its own

@@ -89,6 +89,7 @@ fun BookshelfScreen(
     container: AppContainer,
     onOpenBook: (Long) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenFavorites: () -> Unit,
 ) {
     val viewModel: BookshelfViewModel = viewModel(
         factory = viewModelFactory {
@@ -133,6 +134,7 @@ fun BookshelfScreen(
                 bookCount = shelves.sumOf { it.books.size },
                 shelfCount = shelves.size,
                 onAdd = { pickFolder.launch(null) },
+                onOpenFavorites = onOpenFavorites,
                 onSettings = onOpenSettings,
             )
 
@@ -234,6 +236,7 @@ private fun ShelfTopBar(
     bookCount: Int,
     shelfCount: Int,
     onAdd: () -> Unit,
+    onOpenFavorites: () -> Unit,
     onSettings: () -> Unit,
 ) {
     val palette = LocalReaderPalette.current
@@ -259,6 +262,14 @@ private fun ShelfTopBar(
                 text = if (shelfCount == 0) "还没有添加目录" else "$shelfCount 个目录 · $bookCount 本",
                 fontSize = 12.sp,
                 color = palette.textSecondary,
+            )
+        }
+        NeuIconButton(onClick = onOpenFavorites, size = 42.dp) {
+            Icon(
+                imageVector = Icons.Rounded.Star,
+                contentDescription = "我的收藏",
+                tint = palette.accent,
+                modifier = Modifier.size(20.dp),
             )
         }
         NeuIconButton(onClick = onAdd, size = 42.dp) {
@@ -490,67 +501,6 @@ private fun RecentRow(books: List<BookEntity>, onOpenBook: (Long) -> Unit) {
     }
 }
 
-@Composable
-private fun BookRow(
-    book: BookEntity,
-    onClick: () -> Unit,
-    onToggleFavorite: () -> Unit,
-) {
-    val palette = LocalReaderPalette.current
-    NeuSurface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 3.dp),
-        cornerRadius = 16.dp,
-        elevation = 6.dp,
-        onClick = onClick,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BookCover(book = book, modifier = Modifier.size(44.dp, 60.dp))
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = book.title,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = palette.textPrimary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 20.sp,
-                )
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    text = buildMetaLine(book),
-                    fontSize = 11.sp,
-                    color = palette.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(9.dp))
-                NeuProgress(progress = book.progress)
-            }
-            // 星标自己消费点击事件，不会连带触发整行的「打开这本书」
-            IconButton(onClick = onToggleFavorite) {
-                Icon(
-                    imageVector = if (book.isFavorite) {
-                        Icons.Rounded.Star
-                    } else {
-                        Icons.Rounded.StarBorder
-                    },
-                    contentDescription = if (book.isFavorite) "取消收藏" else "加入收藏",
-                    tint = if (book.isFavorite) palette.accent else palette.textSecondary,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
-    }
-}
-
 /** 搜索输入框。拟态外观，与整页风格保持一致。 */
 @Composable
 private fun SearchField(
@@ -630,58 +580,6 @@ private fun EmptySearchHint(keyword: String) {
             lineHeight = 20.sp,
         )
     }
-}
-
-private fun buildMetaLine(book: BookEntity): String {
-    val parts = mutableListOf<String>()
-    book.author?.takeIf { it.isNotBlank() }?.let { parts += it }
-    parts += book.format.uppercase()
-    if (book.charCount > 0L) parts += formatCharCount(book.charCount)
-    if (book.progress > 0.001f) parts += "已读 ${(book.progress * 100).toInt()}%"
-    return parts.joinToString(" · ")
-}
-
-@Composable
-private fun BookCover(book: BookEntity, modifier: Modifier = Modifier) {
-    val palette = LocalReaderPalette.current
-    val bitmap = rememberCoverBitmap(book.coverPath)
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(7.dp))
-            .background(palette.divider),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Text(
-                text = book.title.take(1),
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold,
-                color = palette.textSecondary,
-            )
-        }
-    }
-}
-
-@Composable
-private fun rememberCoverBitmap(path: String?): Bitmap? {
-    val bitmap by produceState<Bitmap?>(initialValue = null, path) {
-        value = if (path.isNullOrBlank()) {
-            null
-        } else {
-            withContext(Dispatchers.IO) {
-                runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
-            }
-        }
-    }
-    return bitmap
 }
 
 @Composable

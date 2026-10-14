@@ -6,8 +6,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +41,8 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -107,22 +111,31 @@ fun ReaderScreen(
         key = "reader-$bookId",
         factory = viewModelFactory {
             initializer {
-                ReaderViewModel(bookId, container.bookRepository, container.settingsStore)
+                ReaderViewModel(
+                    bookId,
+                    container.bookRepository,
+                    container.libraryRepository,
+                    container.settingsStore,
+                )
             }
         },
     )
 
     val state by viewModel.state.collectAsState()
     val settings by viewModel.settings.collectAsState()
+    val message by viewModel.message.collectAsState()
 
     QingYueTheme(palette = settings.theme.palette()) {
         ReaderBody(
             state = state,
             settings = settings,
+            message = message,
+            onMessageShown = viewModel::consumeMessage,
             onBack = onBack,
             onRetry = viewModel::load,
             onSaveProgress = viewModel::saveProgress,
             onUpdateSettings = viewModel::updateSettings,
+            onClip = viewModel::addClipAt,
         )
     }
 }
@@ -131,10 +144,13 @@ fun ReaderScreen(
 private fun ReaderBody(
     state: ReaderUiState,
     settings: ReaderSettings,
+    message: String?,
+    onMessageShown: () -> Unit,
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onSaveProgress: (Int) -> Unit,
     onUpdateSettings: ((ReaderSettings) -> ReaderSettings) -> Unit,
+    onClip: (Int) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     val document = state.document
@@ -166,9 +182,12 @@ private fun ReaderBody(
             book = state.book,
             document = document,
             settings = settings,
+            message = message,
+            onMessageShown = onMessageShown,
             onBack = onBack,
             onSaveProgress = onSaveProgress,
             onUpdateSettings = onUpdateSettings,
+            onClip = onClip,
         )
 
         else -> CenteredHint(palette.background) {
@@ -201,12 +220,22 @@ private fun ReadingView(
     book: BookEntity?,
     document: BookDocument,
     settings: ReaderSettings,
+    message: String?,
+    onMessageShown: () -> Unit,
     onBack: () -> Unit,
     onSaveProgress: (Int) -> Unit,
     onUpdateSettings: ((ReaderSettings) -> ReaderSettings) -> Unit,
+    onClip: (Int) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     val guard = rememberScreenAwakeGuard()
+    val snackbarHost = remember { SnackbarHostState() }
+
+    LaunchedEffect(message) {
+        val text = message ?: return@LaunchedEffect
+        snackbarHost.showSnackbar(text)
+        onMessageShown()
+    }
 
     var barsVisible by remember { mutableStateOf(true) }
     var autoScrolling by remember { mutableStateOf(false) }
@@ -313,6 +342,7 @@ private fun ReadingView(
                             touchTick++
                         },
                         onToggleBars = { barsVisible = !barsVisible },
+                        onClip = onClip,
                     )
 
                     ReadMode.PAGE -> PagedReader(
@@ -330,6 +360,7 @@ private fun ReadingView(
                         onReachEnd = { autoScrolling = false },
                         onTouch = { guard.onUserInteraction() },
                         onToggleBars = { barsVisible = !barsVisible },
+                        onClip = onClip,
                     )
                 }
             }
@@ -363,6 +394,14 @@ private fun ReadingView(
                 )
             }
         }
+
+        // 收藏摘录后的反馈。抬到底栏之上，避免被工具栏压住
+        SnackbarHost(
+            hostState = snackbarHost,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 96.dp),
+        )
 
         if (showSettingsPanel) {
             ReaderSettingsPanel(
@@ -444,6 +483,7 @@ private fun ScrolledReader(
     onReachEnd: () -> Unit,
     onTouch: () -> Unit,
     onToggleBars: () -> Unit,
+    onClip: (Int) -> Unit,
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
@@ -535,7 +575,12 @@ private fun ScrolledReader(
             items = document.paragraphs,
             key = { it.startOffset },
         ) { paragraph ->
-            ParagraphItem(paragraph = paragraph, settings = settings)
+            ParagraphItem(
+                paragraph = paragraph,
+                settings = settings,
+                onClip = onClip,
+                onToggleBars = onToggleBars,
+            )
         }
     }
 }
@@ -554,6 +599,7 @@ private fun PagedReader(
     onReachEnd: () -> Unit,
     onTouch: () -> Unit,
     onToggleBars: () -> Unit,
+    onClip: (Int) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     val measurer = rememberTextMeasurer()
@@ -689,14 +735,25 @@ private fun PagedReader(
                     }
                 },
         ) { index ->
-            PageContent(page = loaded[index], settings = settings)
+            PageContent(
+                page = loaded[index],
+                settings = settings,
+                onClip = onClip,
+                onToggleBars = onToggleBars,
+            )
         }
     }
 }
 
 /** 渲染一整页。样式与间距必须与 [BookPaginator] 测量时完全一致，否则会溢出。 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PageContent(page: BookPage, settings: ReaderSettings) {
+private fun PageContent(
+    page: BookPage,
+    settings: ReaderSettings,
+    onClip: (Int) -> Unit,
+    onToggleBars: () -> Unit,
+) {
     val palette = LocalReaderPalette.current
     // 内边距已经由外层 BoxWithConstraints 承担，这里只管排版 ——
     // 两边各留一份的话，分页高度会比实际可用高度多算一倍内边距。
@@ -725,6 +782,15 @@ private fun PageContent(page: BookPage, settings: ReaderSettings) {
                 text = buildAnnotatedText(slice.text, slice.spans, color, palette.accent),
                 modifier = Modifier
                     .fillMaxWidth()
+                    // 点击仍然交给外层 pager 切工具栏，长按则收藏这一段。
+                    // 这里显式接管点击（而不是让它冒泡），是为了让长按能稳定识别 ——
+                    // 两套手势竞争时，长按很容易被判成点击。
+                    .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onToggleBars,
+                        onLongClick = { onClip(slice.startOffset) },
+                    )
                     .padding(
                         start = readerIndentStart(settings, block),
                         top = readerSpacingBefore(settings, block),
@@ -740,8 +806,14 @@ private fun PageContent(page: BookPage, settings: ReaderSettings) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ParagraphItem(paragraph: Paragraph, settings: ReaderSettings) {
+private fun ParagraphItem(
+    paragraph: Paragraph,
+    settings: ReaderSettings,
+    onClip: (Int) -> Unit,
+    onToggleBars: () -> Unit,
+) {
     val palette = LocalReaderPalette.current
     val block = paragraph.blockStyle
 
@@ -771,6 +843,13 @@ private fun ParagraphItem(paragraph: Paragraph, settings: ReaderSettings) {
         text = buildAnnotatedText(paragraph.text, paragraph.spans, color, palette.accent),
         modifier = Modifier
             .fillMaxWidth()
+            // 点击切工具栏、长按收藏这一段 —— 与翻页模式保持一致
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onToggleBars,
+                onLongClick = { onClip(paragraph.startOffset) },
+            )
             .padding(
                 start = settings.horizontalPaddingDp.dp + readerIndentStart(settings, block),
                 end = settings.horizontalPaddingDp.dp,

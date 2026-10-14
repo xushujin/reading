@@ -77,3 +77,24 @@ data class ShelfWithBooks(
     @Relation(parentColumn = "id", entityColumn = "shelfId")
     val books: List<BookEntity>,
 )
+
+/**
+ * 收藏的文字片段。
+ *
+ * **刻意不设到 books 的外键**：片段本身是有价值的摘录，用户把书从书架移除
+ * （比如换了个目录重新添加）不该让摘录跟着消失。所以 [bookId] 只作为「能跳回去」
+ * 的线索，另外冗余一份 [bookTitle] —— 书没了也还能看清这段是从哪本书摘的。
+ *
+ * [offset] 是片段起始处在这本书里的正文字符偏移，与阅读进度同一套坐标系，
+ * 因此换字号、换设备后依然能准确定位。
+ */
+@Entity(tableName = "clips")
+data class ClipEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    val bookId: Long,
+    val bookTitle: String,
+    val chapterTitle: String? = null,
+    val text: String,
+    val offset: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
+)

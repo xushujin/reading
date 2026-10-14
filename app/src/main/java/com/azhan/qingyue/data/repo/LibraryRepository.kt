@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.azhan.qingyue.data.local.BookEntity
+import com.azhan.qingyue.data.local.ClipEntity
 import com.azhan.qingyue.data.local.LibraryDao
 import com.azhan.qingyue.data.local.ShelfEntity
 import com.azhan.qingyue.data.local.ShelfWithBooks
@@ -52,6 +53,41 @@ class LibraryRepository(
 
     suspend fun setFavorite(bookId: Long, favorite: Boolean) = withContext(Dispatchers.IO) {
         dao.setFavorite(bookId, favorite)
+    }
+
+    // ---------- 文字片段收藏 ----------
+
+    fun observeClips(): Flow<List<ClipEntity>> = dao.observeClips()
+
+    /**
+     * 收藏一段文字。
+     *
+     * @return false 表示这段文字之前已经收藏过（同书同内容），不重复入库。
+     */
+    suspend fun addClip(
+        bookId: Long,
+        bookTitle: String,
+        chapterTitle: String?,
+        text: String,
+        offset: Int,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return@withContext false
+        if (dao.countClip(bookId, trimmed) > 0) return@withContext false
+        dao.insertClip(
+            ClipEntity(
+                bookId = bookId,
+                bookTitle = bookTitle,
+                chapterTitle = chapterTitle,
+                text = trimmed,
+                offset = offset,
+            ),
+        )
+        true
+    }
+
+    suspend fun removeClip(clipId: Long) = withContext(Dispatchers.IO) {
+        dao.deleteClip(clipId)
     }
 
     /** 添加一个本地文件夹为书架。重复添加同一目录会直接重扫而不是建第二条记录。 */

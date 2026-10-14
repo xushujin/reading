@@ -11,6 +11,7 @@ import androidx.navigation.navArgument
 import com.azhan.qingyue.AppContainer
 import com.azhan.qingyue.data.prefs.ReaderSettings
 import com.azhan.qingyue.ui.bookshelf.BookshelfScreen
+import com.azhan.qingyue.ui.favorites.FavoritesScreen
 import com.azhan.qingyue.ui.reader.ReaderScreen
 import com.azhan.qingyue.ui.settings.SettingsScreen
 import com.azhan.qingyue.ui.theme.QingYueTheme
@@ -19,6 +20,7 @@ import com.azhan.qingyue.ui.theme.shellPalette
 object Routes {
     const val SHELF = "shelf"
     const val SETTINGS = "settings"
+    const val FAVORITES = "favorites"
     const val ARG_BOOK_ID = "bookId"
     const val READER = "reader/{$ARG_BOOK_ID}"
 
@@ -37,6 +39,15 @@ fun QingYueRoot(container: AppContainer) {
                     container = container,
                     onOpenBook = { bookId -> navController.navigate(Routes.reader(bookId)) },
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                    onOpenFavorites = { navController.navigate(Routes.FAVORITES) },
+                )
+            }
+
+            composable(Routes.FAVORITES) {
+                FavoritesScreen(
+                    container = container,
+                    onBack = { navController.popBackStack() },
+                    onOpenBook = { bookId -> navController.navigate(Routes.reader(bookId)) },
                 )
             }
 

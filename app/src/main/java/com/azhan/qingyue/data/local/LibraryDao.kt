@@ -87,4 +87,21 @@ interface LibraryDao {
 
     @Query("DELETE FROM shelves WHERE id = :id")
     suspend fun deleteShelf(id: Long)
+
+    // ---------- 文字片段收藏 ----------
+
+    @Query("SELECT * FROM clips ORDER BY createdAt DESC")
+    fun observeClips(): Flow<List<ClipEntity>>
+
+    @Query("SELECT COUNT(*) FROM clips WHERE bookId = :bookId AND text = :text")
+    suspend fun countClip(bookId: Long, text: String): Int
+
+    @Insert
+    suspend fun insertClip(clip: ClipEntity): Long
+
+    @Query("DELETE FROM clips WHERE id = :id")
+    suspend fun deleteClip(id: Long)
+
+    @Query("DELETE FROM clips WHERE bookId = :bookId")
+    suspend fun deleteClipsOfBook(bookId: Long)
 }

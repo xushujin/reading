@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [ShelfEntity::class, BookEntity::class],
-    version = 2,
+    entities = [ShelfEntity::class, BookEntity::class, ClipEntity::class],
+    version = 3,
     exportSchema = true,
 )
 abstract class QingYueDatabase : RoomDatabase() {
@@ -34,13 +34,35 @@ abstract class QingYueDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v2 → v3：新增 `clips` 表，存收藏的文字片段。
+         *
+         * 建表 SQL 必须与 Room 生成的 schema 完全一致（列名、类型、NOT NULL、主键），
+         * 否则校验迁移时会抛异常。核对办法：比对 `app/schemas/.../3.json`
+         * 里 clips 的字段定义与这里逐项对齐。
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `clips` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`bookId` INTEGER NOT NULL, " +
+                        "`bookTitle` TEXT NOT NULL, " +
+                        "`chapterTitle` TEXT, " +
+                        "`text` TEXT NOT NULL, " +
+                        "`offset` INTEGER NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun create(context: Context): QingYueDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
                 QingYueDatabase::class.java,
                 "qingyue.db",
             )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }
