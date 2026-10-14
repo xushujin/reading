@@ -248,19 +248,12 @@ private fun ReadingView(
     var barsVisible by remember { mutableStateOf(true) }
     var autoScrolling by remember { mutableStateOf(false) }
 
-    // 当前选中的文字：段落起始 offset + 段内字符区间。非 null 时显示「收藏」按钮
-    var picked by remember { mutableStateOf<Pair<Int, IntRange>?>(null) }
+    // 高亮和按钮共用 picked 这一份快照；不能各自保留旧选区。
+    var picked by remember(document) { mutableStateOf<ClipSelection?>(null) }
 
-    val handleSelect: (Int, IntRange) -> Unit = { paragraphOffset, range ->
-        picked = paragraphOffset to range
-    }
+    val handleSelect: (ClipSelection?) -> Unit = { picked = it }
 
-    // 取出选中文字。区间是相对段落的，段落本身从 document 反查
-    val pickedText = picked?.let { (paragraphOffset, range) ->
-        val paragraph = document.paragraphs
-            .getOrNull(document.paragraphIndexForOffset(paragraphOffset))
-        paragraph?.text?.substring(range.first, range.last + 1)
-    }
+    val pickedText = picked?.text
     var touchTick by remember { mutableIntStateOf(0) }
     var suspended by remember { mutableStateOf(false) }
     var showSettingsPanel by remember { mutableStateOf(false) }
@@ -355,6 +348,7 @@ private fun ReadingView(
                         seekTarget = seekTarget,
                         onSeekHandled = { seekTarget = null },
                         onOffsetChanged = { offset ->
+                            if (offset != currentOffset) picked = null
                             currentOffset = offset
                             onSaveProgress(offset)
                         },
@@ -363,7 +357,11 @@ private fun ReadingView(
                             guard.onUserInteraction()
                             touchTick++
                         },
-                        onToggleBars = { barsVisible = !barsVisible },
+                        onToggleBars = {
+                            picked = null
+                            barsVisible = !barsVisible
+                        },
+                        selected = picked,
                         onSelect = handleSelect,
                     )
 
@@ -376,12 +374,17 @@ private fun ReadingView(
                         seekTarget = seekTarget,
                         onSeekHandled = { seekTarget = null },
                         onOffsetChanged = { offset ->
+                            if (offset != currentOffset) picked = null
                             currentOffset = offset
                             onSaveProgress(offset)
                         },
                         onReachEnd = { autoScrolling = false },
                         onTouch = { guard.onUserInteraction() },
-                        onToggleBars = { barsVisible = !barsVisible },
+                        onToggleBars = {
+                            picked = null
+                            barsVisible = !barsVisible
+                        },
+                        selected = picked,
                         onSelect = handleSelect,
                     )
                 }
@@ -421,8 +424,8 @@ private fun ReadingView(
         if (pickedText != null && pickedText.isNotBlank()) {
             NeuButton(
                 onClick = {
-                    val (paragraphOffset, range) = picked!!
-                    onClip(paragraphOffset + range.first, pickedText)
+                    val selection = picked ?: return@NeuButton
+                    onClip(selection.offset, selection.text)
                     picked = null
                 },
                 modifier = Modifier
@@ -526,7 +529,8 @@ private fun ScrolledReader(
     onReachEnd: () -> Unit,
     onTouch: () -> Unit,
     onToggleBars: () -> Unit,
-    onSelect: (Int, IntRange) -> Unit,
+    selected: ClipSelection?,
+    onSelect: (ClipSelection?) -> Unit,
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
@@ -622,6 +626,7 @@ private fun ScrolledReader(
                 paragraph = paragraph,
                 settings = settings,
                 onToggleBars = onToggleBars,
+                selected = selected,
                 onSelect = onSelect,
             )
         }
@@ -642,7 +647,8 @@ private fun PagedReader(
     onReachEnd: () -> Unit,
     onTouch: () -> Unit,
     onToggleBars: () -> Unit,
-    onSelect: (Int, IntRange) -> Unit,
+    selected: ClipSelection?,
+    onSelect: (ClipSelection?) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     val measurer = rememberTextMeasurer()
@@ -782,6 +788,7 @@ private fun PagedReader(
                 page = loaded[index],
                 settings = settings,
                 onToggleBars = onToggleBars,
+                selected = selected,
                 onSelect = onSelect,
             )
         }
@@ -804,39 +811,54 @@ private fun SelectableSlice(
     slice: PageSlice,
     settings: ReaderSettings,
     onToggleBars: () -> Unit,
-    onSelected: (IntRange) -> Unit,
+    selected: ClipSelection?,
+    onSelect: (ClipSelection?) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     val block = slice.blockStyle
 
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    var anchor by remember(slice.startOffset) { mutableStateOf<Int?>(null) }
-    var cursor by remember(slice.startOffset) { mutableStateOf<Int?>(null) }
+    var layout by remember(slice.startOffset, slice.text) { mutableStateOf<TextLayoutResult?>(null) }
+    var anchor by remember(slice.startOffset, slice.text) { mutableStateOf<Int?>(null) }
+    var cursor by remember(slice.startOffset, slice.text) { mutableStateOf<Int?>(null) }
 
-    val range = selectionRange(anchor, cursor)
+    val range = selectedRange(slice.text, slice.startOffset, selected)
 
     Text(
         text = highlight(text = slice.text, spans = slice.spans, range = range, palette = palette),
         onTextLayout = { layout = it },
         modifier = Modifier
             .fillMaxWidth()
+            // 手势坐标必须以文字区域为原点；否则缩进与段前距会让高亮偏移。
+            .padding(
+                start = readerIndentStart(settings, block),
+                top = readerSpacingBefore(settings, block),
+            )
             // 长按后拖动 = 选择。必须排在 clickable 前面 ——
             // 它消费掉长按序列后 clickable 就拿不到 up，不会再误触发切工具栏。
-            .pointerInput(slice.startOffset) {
+            // 同一个起始 offset 在改变字号/工具栏显隐后的切片文本可能完全不同。
+            // 手势协程必须随文本重启，否则 onDragEnd 会拿旧切片的文字保存。
+            .pointerInput(slice.startOffset, slice.text) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { position ->
+                        onSelect(null)
                         val index = layout?.getOffsetForPosition(position) ?: return@detectDragGesturesAfterLongPress
                         anchor = index
                         cursor = index
                     },
                     onDrag = { change, _ ->
                         cursor = layout?.getOffsetForPosition(change.position)
+                        onSelect(selectionRange(anchor, cursor)
+                            ?.let { selectedClip(slice.text, slice.startOffset, it) })
                         change.consume()
                     },
-                    onDragEnd = { selectionRange(anchor, cursor)?.let(onSelected) },
+                    onDragEnd = {
+                        onSelect(selectionRange(anchor, cursor)
+                            ?.let { selectedClip(slice.text, slice.startOffset, it) })
+                    },
                     onDragCancel = {
                         anchor = null
                         cursor = null
+                        onSelect(null)
                     },
                 )
             }
@@ -845,10 +867,6 @@ private fun SelectableSlice(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onToggleBars,
-            )
-            .padding(
-                start = readerIndentStart(settings, block),
-                top = readerSpacingBefore(settings, block),
             ),
         style = readerTextStyle(
             settings = settings,
@@ -857,6 +875,29 @@ private fun SelectableSlice(
             color = palette.textPrimary,
         ),
     )
+}
+
+/** 保存按钮和入库共用同一份已选文本，避免重排后反查到另一段。 */
+internal data class ClipSelection(val offset: Int, val text: String)
+
+/** 从被高亮的同一份文本、同一区间直接截取摘录。区间不合法时不允许保存。 */
+internal fun selectedClip(text: String, startOffset: Int, range: IntRange): ClipSelection? {
+    if (startOffset < 0 || range.first < 0 || range.last < range.first || range.last >= text.length) {
+        return null
+    }
+    val selected = text.substring(range.first, range.last + 1)
+    if (selected.isBlank()) return null
+    return ClipSelection(startOffset + range.first, selected)
+}
+
+/** 只有当前展示的原文和待保存文本逐字相同时才允许画高亮。 */
+internal fun selectedRange(text: String, startOffset: Int, selected: ClipSelection?): IntRange? {
+    if (selected == null) return null
+    val first = selected.offset - startOffset
+    val lastExclusive = first + selected.text.length
+    if (first < 0 || lastExclusive > text.length || first == lastExclusive) return null
+    if (text.substring(first, lastExclusive) != selected.text) return null
+    return first until lastExclusive
 }
 
 /** 把长按锚点与拖动终点归一成一个区间；任一为空或重合则返回 null。 */
@@ -894,7 +935,8 @@ private fun PageContent(
     page: BookPage,
     settings: ReaderSettings,
     onToggleBars: () -> Unit,
-    onSelect: (Int, IntRange) -> Unit,
+    selected: ClipSelection?,
+    onSelect: (ClipSelection?) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     // 内边距已经由外层 BoxWithConstraints 承担，这里只管排版 ——
@@ -924,7 +966,8 @@ private fun PageContent(
                 slice = slice,
                 settings = settings,
                 onToggleBars = onToggleBars,
-                onSelected = { range -> onSelect(slice.startOffset, range) },
+                selected = selected,
+                onSelect = onSelect,
             )
         }
     }
@@ -935,8 +978,9 @@ private fun PageContent(
 private fun ParagraphItem(
     paragraph: Paragraph,
     settings: ReaderSettings,
-    onSelect: (Int, IntRange) -> Unit,
+    onSelect: (ClipSelection?) -> Unit,
     onToggleBars: () -> Unit,
+    selected: ClipSelection?,
 ) {
     val palette = LocalReaderPalette.current
     val block = paragraph.blockStyle
@@ -963,37 +1007,46 @@ private fun ParagraphItem(
         else -> palette.textPrimary
     }
 
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    var anchor by remember(paragraph.startOffset) { mutableStateOf<Int?>(null) }
-    var cursor by remember(paragraph.startOffset) { mutableStateOf<Int?>(null) }
+    var layout by remember(paragraph.startOffset, paragraph.text) { mutableStateOf<TextLayoutResult?>(null) }
+    var anchor by remember(paragraph.startOffset, paragraph.text) { mutableStateOf<Int?>(null) }
+    var cursor by remember(paragraph.startOffset, paragraph.text) { mutableStateOf<Int?>(null) }
 
-    val range = selectionRange(anchor, cursor)
+    val range = selectedRange(paragraph.text, paragraph.startOffset, selected)
 
     Text(
         text = highlight(paragraph.text, paragraph.spans, range, palette),
         onTextLayout = { layout = it },
         modifier = Modifier
             .fillMaxWidth()
-            // 长按后拖动 = 选择，排在 clickable 前面
-            .pointerInput(paragraph.startOffset) {
+            // 手势坐标与 TextLayoutResult 都以文字区域为原点。
+            .padding(
+                start = settings.horizontalPaddingDp.dp + readerIndentStart(settings, block),
+                end = settings.horizontalPaddingDp.dp,
+                top = readerSpacingBefore(settings, block),
+            )
+            // 长按后拖动 = 选择，排在 clickable 前面；正文内容变化时重启协程。
+            .pointerInput(paragraph.startOffset, paragraph.text) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { position ->
+                        onSelect(null)
                         val index = layout?.getOffsetForPosition(position) ?: return@detectDragGesturesAfterLongPress
                         anchor = index
                         cursor = index
                     },
                     onDrag = { change, _ ->
                         cursor = layout?.getOffsetForPosition(change.position)
+                        onSelect(selectionRange(anchor, cursor)
+                            ?.let { selectedClip(paragraph.text, paragraph.startOffset, it) })
                         change.consume()
                     },
                     onDragEnd = {
-                        selectionRange(anchor, cursor)?.let { r ->
-                            onSelect(paragraph.startOffset, r)
-                        }
+                        onSelect(selectionRange(anchor, cursor)
+                            ?.let { selectedClip(paragraph.text, paragraph.startOffset, it) })
                     },
                     onDragCancel = {
                         anchor = null
                         cursor = null
+                        onSelect(null)
                     },
                 )
             }
@@ -1002,11 +1055,6 @@ private fun ParagraphItem(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onToggleBars,
-            )
-            .padding(
-                start = settings.horizontalPaddingDp.dp + readerIndentStart(settings, block),
-                end = settings.horizontalPaddingDp.dp,
-                top = readerSpacingBefore(settings, block),
             ),
         style = readerTextStyle(
             settings = settings,

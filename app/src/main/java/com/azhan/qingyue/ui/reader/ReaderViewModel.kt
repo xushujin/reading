@@ -76,12 +76,7 @@ class ReaderViewModel(
         viewModelScope.launch { settingsStore.update(transform) }
     }
 
-    /**
-     * 收藏一段文字。
-     *
-     * [text] 是用户在摘录面板里最终圈定（或删改）过的内容；[offset] 用来定位
-     * 它在书中的位置，方便以后跳回来。两者都从面板拿到，这里只负责落库。
-     */
+    /** 保存正文中实际高亮的选区原文；偏移仅用来记录来源章节。 */
     fun addClip(offset: Int, text: String) {
         val document = _state.value.document ?: return
         val book = _state.value.book ?: return

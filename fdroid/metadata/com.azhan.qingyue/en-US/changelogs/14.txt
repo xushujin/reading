@@ -1,0 +1,7 @@
+Fixed saved highlights differing from the text visibly selected in the reader.
+
+* Highlighting and saving now use the same selection snapshot, so the saved passage
+  matches what was shown on screen.
+* Corrected touch coordinates around paragraph indentation and spacing, and
+  refreshed selection handling when pagination changes the text on a page.
+* Saved passages keep the selected whitespace unchanged.

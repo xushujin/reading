@@ -155,13 +155,13 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 | 包 | 路径 | 体积 |
 |---|---|---|
-| release（推荐） | `app/build/outputs/apk/release/QingYue-1.3.4-release.apk` | **1.3 MB** |
-| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.3.4-debug.apk` | 16.7 MB |
+| release（推荐） | `app/build/outputs/apk/release/QingYue-1.3.5-release.apk` | **1.3 MB** |
+| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.3.5-debug.apk` | 16.7 MB |
 
 装到手机：
 
 ```bash
-adb install -r app/build/outputs/apk/release/QingYue-1.3.4-release.apk
+adb install -r app/build/outputs/apk/release/QingYue-1.3.5-release.apk
 ```
 
 也可以直接把 APK 传到手机上点击安装（需要允许「安装未知来源应用」）。
@@ -184,15 +184,15 @@ release 包用 `keystore/qingyue-release.jks` 签名：
 仓库自带 `.github/workflows/build-apk.yml`：**打 tag 才触发**（也可在 Actions 页手动触发）。
 
 ```bash
-git tag v1.3.4          # 需以 v 开头，建议与 versionName 一致
-git push origin v1.3.4  # 推上去即触发编译
+git tag v1.3.5          # 需以 v 开头，建议与 versionName 一致
+git push origin v1.3.5  # 推上去即触发编译
 git push origin v1.3.1  # 推上去即触发编译
 ```
 
 产物有两个去处：
 
 - **GitHub Release**（仅 tag 构建）：自动创建/更新对应 tag 的 Release，并把 APK
-  作为附件挂上去，文件名形如 `QingYue-v1.3.4.apk`
+  作为附件挂上去，文件名形如 `QingYue-v1.3.5.apk`
   （**附件名必须纯 ASCII**：GitHub 会删掉 Release 资源名里的非 ASCII 字符）。
   已存在同名 Release 时会**覆盖**附件（`gh release upload --clobber`），可安全重跑。
 - **Artifact**（tag 与手动触发都有）：名为 `qingyue-release-apk`，保留 90 天。

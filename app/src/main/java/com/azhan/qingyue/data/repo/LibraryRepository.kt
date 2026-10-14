@@ -71,15 +71,15 @@ class LibraryRepository(
         text: String,
         offset: Int,
     ): Boolean = withContext(Dispatchers.IO) {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) return@withContext false
-        if (dao.countClip(bookId, trimmed) > 0) return@withContext false
+        // 持久化必须保留用户圈选的原文；trim 会让列表与高亮不完全一致。
+        if (text.isBlank()) return@withContext false
+        if (dao.countClip(bookId, text) > 0) return@withContext false
         dao.insertClip(
             ClipEntity(
                 bookId = bookId,
                 bookTitle = bookTitle,
                 chapterTitle = chapterTitle,
-                text = trimmed,
+                text = text,
                 offset = offset,
             ),
         )
