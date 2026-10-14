@@ -84,6 +84,7 @@ import com.azhan.qingyue.ui.theme.palette
 import com.azhan.qingyue.util.ScreenAwakeEffect
 import com.azhan.qingyue.util.formatPercent
 import com.azhan.qingyue.util.rememberScreenAwakeGuard
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -653,11 +654,19 @@ private fun PagedReader(
                 delay(intervalState.value)
                 val pages = pagesState.value
                 val next = pagerState.currentPage + 1
-                if (next <= pages.lastIndex) {
-                    pagerState.animateScrollToPage(next)
-                } else {
+                if (next > pages.lastIndex) {
                     onReachEnd()
                     break
+                }
+                try {
+                    pagerState.animateScrollToPage(next)
+                } catch (cancelled: CancellationException) {
+                    // animateScrollToPage 受 MutatorMutex 保护，会被其它滚动操作抢占 ——
+                    // 最典型的是重新分页后 LaunchedEffect(loaded) 里的 scrollToPage。
+                    // 抢占抛的也是 CancellationException，若任其冒泡，本协程会被当成
+                    // 「已取消」而静默退出：翻页停住，但 autoScrolling 仍是 true，
+                    // 用户得关掉再开才恢复。所以这里只放行「真取消」。
+                    if (!isActive) throw cancelled
                 }
             }
         }

@@ -1,0 +1,8 @@
+Fixed auto page turn sometimes stalling.
+
+* Auto page turn could stop in the middle of a book while the UI still showed it
+  as running; toggling it off and on was the only way to resume. The page turn
+  animation is protected by a mutex and gets pre-empted whenever pagination changes,
+  which raises a cancellation exception. That was being mistaken for "this coroutine
+  was cancelled", so the loop driving auto page turn exited silently while the
+  auto-turn flag stayed on
