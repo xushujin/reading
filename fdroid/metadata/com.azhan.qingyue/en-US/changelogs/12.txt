@@ -1,0 +1,9 @@
+Fixed the toolbar not toggling, and selecting text saving the wrong passage.
+
+* Tapping the text works again. The previous attempt made the text a text field to
+  support selection, but a text field handles gestures on its own internal node, so
+  the tap handler underneath never fired. Text rendering is back, and selection is
+  now handled directly
+* Long-press and drag to select, then tap the button that appears to save exactly
+  what you highlighted. Previously the saved passage could differ from what was
+  highlighted, because the selection range was being tracked by the text field

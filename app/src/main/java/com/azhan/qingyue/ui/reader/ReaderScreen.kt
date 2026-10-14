@@ -9,10 +9,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -65,8 +62,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -82,6 +81,7 @@ import com.azhan.qingyue.AppContainer
 import com.azhan.qingyue.data.local.BookEntity
 import com.azhan.qingyue.data.parser.BlockStyle
 import com.azhan.qingyue.data.parser.BookDocument
+import com.azhan.qingyue.data.parser.InlineSpan
 import com.azhan.qingyue.data.parser.Paragraph
 import com.azhan.qingyue.data.prefs.ReadMode
 import com.azhan.qingyue.data.prefs.ReaderSettings
@@ -90,6 +90,7 @@ import com.azhan.qingyue.ui.neu.NeuIconButton
 import com.azhan.qingyue.ui.neu.NeuProgress
 import com.azhan.qingyue.ui.neu.NeuSurface
 import com.azhan.qingyue.ui.theme.LocalReaderPalette
+import com.azhan.qingyue.ui.theme.ReaderPalette
 import com.azhan.qingyue.ui.theme.QingYueTheme
 import com.azhan.qingyue.ui.theme.palette
 import com.azhan.qingyue.util.ScreenAwakeEffect
@@ -788,19 +789,16 @@ private fun PagedReader(
 }
 
 /**
- * 一段可选中的正文。
+ * 一段可选中、且点击能穿透的正文。
  *
- * 为什么用 `BasicTextField(readOnly)` 而不是 `SelectionContainer`：
- * 后者在 Compose 1.7 / 1.8 里**拿不到选中的文本** —— 带 `onSelectionChange`
- * 的重载是 `internal`，`Selection` 本身也是 `internal`，从应用层无法引用。
- * 而 `BasicTextField` 的 `TextFieldValue.selection` 是公开 API，直接给字符区间。
+ * 为什么不用 `BasicTextField` 做选择（v1.3.1 的教训）：
+ * 它在**自己的内部节点**处理手势，外层挂什么都不管用 —— 点击被吞掉（工具栏切不了），
+ * 而且它自己维护一套 selection，外面同步过来的范围经常和显示的对不上。
  *
- * 高度不会跑偏：`BasicTextField` 与 `Text` 内部都是 `MultiParagraph`，
- * 同样的 textStyle + 宽度下换行与行高一致，所以分页测量结果依然有效。
- *
- * 手势：`readOnly` 的输入框仍支持长按起选择与拖手柄；点击另外接管用来切工具栏。
+ * 现在改成：`Text` 负责渲染与点击（它不吞手势），选择自己实现 ——
+ * 长按后拖动，用 [TextLayoutResult.getOffsetForPosition] 把手指位置换算成字符下标。
+ * 这样分页测量完全不变，三条手势（点击 / 长按拖动 / 翻页）也互不干扰。
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SelectableSlice(
     slice: PageSlice,
@@ -811,68 +809,80 @@ private fun SelectableSlice(
     val palette = LocalReaderPalette.current
     val block = slice.blockStyle
 
-    var value by remember(slice.startOffset) {
-        mutableStateOf(TextFieldValue(slice.text, TextRange(slice.text.length)))
-    }
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var anchor by remember(slice.startOffset) { mutableStateOf<Int?>(null) }
+    var cursor by remember(slice.startOffset) { mutableStateOf<Int?>(null) }
 
-    // 文本变了（重新分页）要同步，否则输入框还显示旧内容
-    LaunchedEffect(slice.text) {
-        if (value.text != slice.text) {
-            value = TextFieldValue(slice.text, TextRange(slice.text.length))
-        }
-    }
+    val range = selectionRange(anchor, cursor)
 
-    BasicTextField(
-        value = value,
-        onValueChange = { updated ->
-            value = updated
-            updated.selection.toRange(slice.text.length)?.let(onSelected)
-        },
-        readOnly = true,
-        textStyle = readerTextStyle(
+    Text(
+        text = highlight(text = slice.text, spans = slice.spans, range = range, palette = palette),
+        onTextLayout = { layout = it },
+        modifier = Modifier
+            .fillMaxWidth()
+            // 点击切工具栏：Text 不消费手势，这里能正常收到
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onToggleBars,
+            )
+            // 长按后拖动 = 选择。与上面的点击是不同手势，不会打架
+            .pointerInput(slice.startOffset) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { position ->
+                        val index = layout?.getOffsetForPosition(position) ?: return@detectDragGesturesAfterLongPress
+                        anchor = index
+                        cursor = index
+                    },
+                    onDrag = { change, _ ->
+                        cursor = layout?.getOffsetForPosition(change.position)
+                        change.consume()
+                    },
+                    onDragEnd = { selectionRange(anchor, cursor)?.let(onSelected) },
+                    onDragCancel = {
+                        anchor = null
+                        cursor = null
+                    },
+                )
+            }
+            .padding(
+                start = readerIndentStart(settings, block),
+                top = readerSpacingBefore(settings, block),
+            ),
+        style = readerTextStyle(
             settings = settings,
             blockStyle = block,
             isParagraphStart = slice.isParagraphStart,
             color = palette.textPrimary,
         ),
-        cursorBrush = SolidColor(Color.Transparent),
-        modifier = Modifier
-            .fillMaxWidth()
-            // 短按切工具栏；长按放行给输入框起选择
-            .detectTap(onToggleBars)
-            .padding(
-                start = readerIndentStart(settings, block),
-                top = readerSpacingBefore(settings, block),
-            ),
     )
 }
 
-/** 把选中区间换算成 IntRange；空选返回 null。 */
-private fun TextRange.toRange(length: Int): IntRange? {
-    val a = min.coerceIn(0, length)
-    val b = max.coerceIn(0, length)
+/** 把长按锚点与拖动终点归一成一个区间；任一为空或重合则返回 null。 */
+private fun selectionRange(anchor: Int?, cursor: Int?): IntRange? {
+    if (anchor == null || cursor == null) return null
+    val a = minOf(anchor, cursor)
+    val b = maxOf(anchor, cursor)
     if (a == b) return null
     return a until b
 }
 
-/** 判定「短按」的阈值：超过它就当成用户在做长按选择，不切工具栏。 */
-private const val TAP_MAX_MILLIS = 300L
-
-/**
- * 在正文上检测「短按」，用来切换工具栏。
- *
- * 为什么不能用 `Modifier.clickable`：`BasicTextField` 即使在 `readOnly` 下
- * 也会消费点击（用于移动光标），外层 modifier 收不到事件。
- * 这里用 `pointerInput` 挂在更靠前的位置自己判定，且**只判定、不消费** ——
- * 消费掉的话长按选择就起不来了。
- */
-private fun Modifier.detectTap(onTap: () -> Unit): Modifier = pointerInput(onTap) {
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        val up = waitForUpOrCancellation()
-        if (up != null && up.uptimeMillis - down.uptimeMillis < TAP_MAX_MILLIS) {
-            onTap()
-        }
+/** 在选中范围上叠一层底色。用 copy 重建 AnnotatedString，不动原始 spans。 */
+private fun highlight(
+    text: String,
+    spans: List<InlineSpan>,
+    range: IntRange?,
+    palette: ReaderPalette,
+): AnnotatedString {
+    val base = buildAnnotatedText(text, spans, palette.textPrimary, palette.accent)
+    if (range == null) return base
+    return buildAnnotatedString {
+        append(base)
+        addStyle(
+            style = SpanStyle(background = palette.accent.copy(alpha = 0.30f)),
+            start = range.first.coerceIn(0, text.length),
+            end = (range.last + 1).coerceIn(0, text.length),
+        )
     }
 }
 
@@ -952,41 +962,57 @@ private fun ParagraphItem(
         else -> palette.textPrimary
     }
 
-    var value by remember(paragraph.startOffset) {
-        mutableStateOf(TextFieldValue(paragraph.text, TextRange(paragraph.text.length)))
-    }
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var anchor by remember(paragraph.startOffset) { mutableStateOf<Int?>(null) }
+    var cursor by remember(paragraph.startOffset) { mutableStateOf<Int?>(null) }
 
-    LaunchedEffect(paragraph.text) {
-        if (value.text != paragraph.text) {
-            value = TextFieldValue(paragraph.text, TextRange(paragraph.text.length))
-        }
-    }
+    val range = selectionRange(anchor, cursor)
 
-    BasicTextField(
-        value = value,
-        onValueChange = { updated ->
-            value = updated
-            updated.selection.toRange(paragraph.text.length)?.let { range ->
-                onSelect(paragraph.startOffset, range)
-            }
-        },
-        readOnly = true,
-        textStyle = readerTextStyle(
-            settings = settings,
-            blockStyle = block,
-            isParagraphStart = true,
-            color = color,
-        ),
-        cursorBrush = SolidColor(Color.Transparent),
+    Text(
+        text = highlight(paragraph.text, paragraph.spans, range, palette),
+        onTextLayout = { layout = it },
         modifier = Modifier
             .fillMaxWidth()
-            // 短按切工具栏；长按放行给输入框起选择
-            .detectTap(onToggleBars)
+            // 点击切工具栏；Text 不消费手势，能正常收到
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onToggleBars,
+            )
+            // 长按后拖动 = 选择
+            .pointerInput(paragraph.startOffset) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { position ->
+                        val index = layout?.getOffsetForPosition(position) ?: return@detectDragGesturesAfterLongPress
+                        anchor = index
+                        cursor = index
+                    },
+                    onDrag = { change, _ ->
+                        cursor = layout?.getOffsetForPosition(change.position)
+                        change.consume()
+                    },
+                    onDragEnd = {
+                        selectionRange(anchor, cursor)?.let { r ->
+                            onSelect(paragraph.startOffset, r)
+                        }
+                    },
+                    onDragCancel = {
+                        anchor = null
+                        cursor = null
+                    },
+                )
+            }
             .padding(
                 start = settings.horizontalPaddingDp.dp + readerIndentStart(settings, block),
                 end = settings.horizontalPaddingDp.dp,
                 top = readerSpacingBefore(settings, block),
             ),
+        style = readerTextStyle(
+            settings = settings,
+            blockStyle = block,
+            isParagraphStart = true,
+            color = color,
+        ),
     )
 }
 
