@@ -1,0 +1,8 @@
+Fixed the reader toolbar not hiding, and not coming back after auto page turn stopped.
+
+* Tapping the text no longer toggled the toolbar. Making the text selectable meant
+  switching to a text field, which swallows taps even when read-only, so the tap
+  handler underneath never fired. Taps are now detected ahead of it, and long presses
+  are still left alone so selecting text keeps working
+* Because of the same cause, the toolbar could not be brought back after auto page
+  turn stopped - it hides itself automatically, and only a tap could restore it

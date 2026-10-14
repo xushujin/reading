@@ -10,6 +10,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.input.pointer.pointerInput
@@ -834,12 +838,8 @@ private fun SelectableSlice(
         cursorBrush = SolidColor(Color.Transparent),
         modifier = Modifier
             .fillMaxWidth()
-            // 点击切工具栏；长按留给输入框自己起选择
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onToggleBars,
-            )
+            // 短按切工具栏；长按放行给输入框起选择
+            .detectTap(onToggleBars)
             .padding(
                 start = readerIndentStart(settings, block),
                 top = readerSpacingBefore(settings, block),
@@ -853,6 +853,27 @@ private fun TextRange.toRange(length: Int): IntRange? {
     val b = max.coerceIn(0, length)
     if (a == b) return null
     return a until b
+}
+
+/** 判定「短按」的阈值：超过它就当成用户在做长按选择，不切工具栏。 */
+private const val TAP_MAX_MILLIS = 300L
+
+/**
+ * 在正文上检测「短按」，用来切换工具栏。
+ *
+ * 为什么不能用 `Modifier.clickable`：`BasicTextField` 即使在 `readOnly` 下
+ * 也会消费点击（用于移动光标），外层 modifier 收不到事件。
+ * 这里用 `pointerInput` 挂在更靠前的位置自己判定，且**只判定、不消费** ——
+ * 消费掉的话长按选择就起不来了。
+ */
+private fun Modifier.detectTap(onTap: () -> Unit): Modifier = pointerInput(onTap) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val up = waitForUpOrCancellation()
+        if (up != null && up.uptimeMillis - down.uptimeMillis < TAP_MAX_MILLIS) {
+            onTap()
+        }
+    }
 }
 
 /** 渲染一整页。样式与间距必须与 [BookPaginator] 测量时完全一致，否则会溢出。 */
@@ -959,12 +980,8 @@ private fun ParagraphItem(
         cursorBrush = SolidColor(Color.Transparent),
         modifier = Modifier
             .fillMaxWidth()
-            // 点击切工具栏；长按留给输入框自己起选择
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onToggleBars,
-            )
+            // 短按切工具栏；长按放行给输入框起选择
+            .detectTap(onToggleBars)
             .padding(
                 start = settings.horizontalPaddingDp.dp + readerIndentStart(settings, block),
                 end = settings.horizontalPaddingDp.dp,
