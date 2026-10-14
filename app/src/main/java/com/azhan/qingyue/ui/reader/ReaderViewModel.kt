@@ -77,13 +77,12 @@ class ReaderViewModel(
     }
 
     /**
-     * 收藏包含 [offset] 的那一段文字。
+     * 收藏一段文字。
      *
-     * 传 offset 而不是段落下标，是因为渲染单位（翻页模式下的 slice）只带 offset；
-     * 这里反查回整段再存 —— 一个段落跨页时会被切成多个 slice，
-     * 直接存 slice 的文本就只摘到半段，那就失去摘录的意义了。
+     * [text] 是用户在摘录面板里最终圈定（或删改）过的内容；[offset] 用来定位
+     * 它在书中的位置，方便以后跳回来。两者都从面板拿到，这里只负责落库。
      */
-    fun addClipAt(offset: Int) {
+    fun addClip(offset: Int, text: String) {
         val document = _state.value.document ?: return
         val book = _state.value.book ?: return
         val paragraph = document.paragraphs
@@ -95,8 +94,8 @@ class ReaderViewModel(
                 bookId = bookId,
                 bookTitle = book.title,
                 chapterTitle = document.chapterTitles.getOrNull(paragraph.chapterIndex),
-                text = paragraph.text,
-                offset = paragraph.startOffset,
+                text = text,
+                offset = offset,
             )
             _message.value = if (added) "已收藏这段文字" else "这段文字之前已经收藏过了"
         }

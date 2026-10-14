@@ -28,19 +28,6 @@ class BookshelfViewModel(
     val recent: StateFlow<List<BookEntity>> = library.observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** 收藏列表（跨书架）。 */
-    val favorites: StateFlow<List<BookEntity>> = library.observeFavorites()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
-     * 收藏分组默认**展开**，与目录列表相反。
-     *
-     * 目录可能几十个文件夹，全展开会把首页淹掉；而收藏是用户主动筛过的少量书，
-     * 标了却看不到反而让人困惑。
-     */
-    private val _favoritesExpanded = MutableStateFlow(true)
-    val favoritesExpanded: StateFlow<Boolean> = _favoritesExpanded.asStateFlow()
-
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
@@ -126,10 +113,6 @@ class BookshelfViewModel(
         _expandedShelves.update { current ->
             if (shelfId in current) current - shelfId else current + shelfId
         }
-    }
-
-    fun toggleFavoritesExpanded() {
-        _favoritesExpanded.update { !it }
     }
 
     /** 切换收藏。写库后 Room 的 Flow 会自动回流刷新列表，不需要手动改 UI 状态。 */

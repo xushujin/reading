@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,12 +25,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +45,7 @@ import com.azhan.qingyue.ui.theme.LocalReaderPalette
 import com.azhan.qingyue.util.formatCharCount
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.absoluteValue
 
 /**
  * 书籍行。
@@ -118,15 +124,24 @@ internal fun buildMetaLine(book: BookEntity): String {
     return parts.joinToString(" · ")
 }
 
+/**
+ * 封面。
+ *
+ * 没有封面图时，按书名生成一个**稳定的渐变**（同一本书永远同一个色），
+ * 比原来的「灰底 + 首字」耐看得多 —— 一屏书排下来是彩色的，
+ * 而且颜色本身能帮人认出书。
+ */
 @Composable
 internal fun BookCover(book: BookEntity, modifier: Modifier = Modifier) {
     val palette = LocalReaderPalette.current
     val bitmap = rememberCoverBitmap(book.coverPath)
+    val gradient = remember(book.title) { coverGradient(book.title) }
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(7.dp))
-            .background(palette.divider),
+            .clip(RoundedCornerShape(8.dp))
+            .background(Brush.linearGradient(gradient))
+            .border(0.5.dp, palette.shadow.copy(alpha = 0.28f), RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null) {
@@ -138,13 +153,50 @@ internal fun BookCover(book: BookEntity, modifier: Modifier = Modifier) {
             )
         } else {
             Text(
-                text = book.title.take(1),
-                fontSize = 19.sp,
+                text = coverInitials(book.title),
+                fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
-                color = palette.textSecondary,
+                color = Color.White.copy(alpha = 0.92f),
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                lineHeight = 19.sp,
+                modifier = Modifier.padding(horizontal = 3.dp),
             )
         }
     }
+}
+
+/**
+ * 按书名取一个固定的渐变色对。
+ *
+ * 用 `hashCode` 做种子 —— 只要书名不变，颜色就不会变，不会每次重组都换色。
+ * 两端的色相相差 40°，保证有明暗对比又不至于脏。
+ */
+private fun coverGradient(title: String): List<Color> {
+    val hue = (title.hashCode().absoluteValue % 360).toFloat()
+    return listOf(
+        Color.hsl(hue, 0.42f, 0.63f),
+        Color.hsl((hue + 40f) % 360f, 0.48f, 0.45f),
+    )
+}
+
+/** 封面上的字：中文取前两字，英文取首字母缩写，最多两个字符。 */
+private fun coverInitials(title: String): String {
+    val trimmed = title.trim()
+    if (trimmed.isEmpty()) return "书"
+
+    val first = trimmed.first()
+    // 英文按单词取首字母，最多两个
+    if (first.isLetter() && first.code < 128) {
+        return trimmed
+            .split(' ', '-', '_')
+            .filter { it.isNotBlank() }
+            .take(2)
+            .map { it.first().uppercaseChar() }
+            .joinToString("")
+            .ifEmpty { first.uppercaseChar().toString() }
+    }
+    return trimmed.take(2)
 }
 
 @Composable

@@ -1,0 +1,8 @@
+Select the exact text you want to save, and a tidier shelf.
+
+* Long-press a paragraph to start a selection, drag the handles to pick exactly the
+  passage you want, then tap the button that appears to save it
+* The shelf no longer repeats a favourites group; the star button in the top bar
+  opens the favourites screen, which is the single place for both highlights and books
+* Book covers without artwork now get a colour gradient derived from the title,
+  instead of a grey box with a single character

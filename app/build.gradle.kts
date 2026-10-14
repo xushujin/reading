@@ -28,8 +28,8 @@ android {
         applicationId = "com.azhan.qingyue"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.3.0"
+        versionCode = 10
+        versionName = "1.3.1"
 
         vectorDrawables { useSupportLibrary = true }
         resourceConfigurations += listOf("zh", "en")
@@ -106,7 +106,7 @@ androidComponents {
         variant.outputs.forEach { output ->
             val impl = output as? com.android.build.api.variant.impl.VariantOutputImpl
                 ?: return@forEach
-            val version = impl.versionName.orNull ?: "1.3.0"
+            val version = impl.versionName.orNull ?: "1.3.1"
             impl.outputFileName.set("QingYue-$version-${variant.name}.apk")
         }
     }

@@ -105,8 +105,6 @@ fun BookshelfScreen(
     val busy by viewModel.busy.collectAsState()
     val message by viewModel.message.collectAsState()
     val expandedShelves by viewModel.expandedShelves.collectAsState()
-    val favorites by viewModel.favorites.collectAsState()
-    val favoritesExpanded by viewModel.favoritesExpanded.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val snackbarHost = remember { SnackbarHostState() }
@@ -175,26 +173,8 @@ fun BookshelfScreen(
                             }
                         }
 
-                        // 收藏跨书架，所以单独成组，不归在任何文件夹下
-                        if (favorites.isNotEmpty()) {
-                            item(key = "favorites-header") {
-                                GroupHeader(
-                                    name = "收藏",
-                                    count = favorites.size,
-                                    expanded = favoritesExpanded,
-                                    onToggle = { viewModel.toggleFavoritesExpanded() },
-                                )
-                            }
-                            if (favoritesExpanded) {
-                                items(favorites, key = { "favorite-${it.id}" }) { book ->
-                                    BookRow(
-                                        book = book,
-                                        onClick = { onOpenBook(book.id) },
-                                        onToggleFavorite = { viewModel.toggleFavorite(book) },
-                                    )
-                                }
-                            }
-                        }
+                        // 收藏不再在首页单独成组 —— 顶栏已经有「我的收藏」入口，
+                        // 首页再列一遍等于同一份数据有两个入口，反而不好找。
 
                         shelves.forEach { shelf ->
                             val expanded = shelf.shelf.id in expandedShelves

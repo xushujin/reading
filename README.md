@@ -26,11 +26,10 @@
 - 组内按**最后阅读时间倒序**，最近读过的排最前；没读过的按书名排
 - 首页目录列表**默认折叠**，点分组头展开；展开状态跨页面保留（进阅读页再返回不会丢）
 - 顶部「最近阅读」显示最近 3 本
-- **收藏**：书籍行右侧的星标可标记收藏；首页「收藏」分组集中列出（跨书架，默认展开）
 - **搜索**：顶部搜索框按书名 / 文件名 / 作者实时过滤，跨书架扁平列出结果
-- **摘录**：阅读时长按一段文字即可收藏为片段
-- **我的收藏页**（首页星标入口）：用 Tab 分开管理「文字片段」与「电子书」两种收藏，
-  点摘录可跳回原书位置
+- **摘录**：阅读时长按一段文字**直接选中**（拖手柄圈范围），选中后浮现「收藏选中 N 字」按钮，点击即存
+- **我的收藏页**（首页顶栏星标入口）：用 Tab 分开管理「文字片段」与「电子书」两种收藏，
+  点摘录可跳回原书位置。首页不再重复列出收藏分组 —— 有独立页面就够了
 - 重复添加同一目录不会建第二条记录，直接重扫
 
 ### 2. 阅读
@@ -156,13 +155,13 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 | 包 | 路径 | 体积 |
 |---|---|---|
-| release（推荐） | `app/build/outputs/apk/release/QingYue-1.3.0-release.apk` | **1.3 MB** |
-| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.3.0-debug.apk` | 16.7 MB |
+| release（推荐） | `app/build/outputs/apk/release/QingYue-1.3.1-release.apk` | **1.3 MB** |
+| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.3.1-debug.apk` | 16.7 MB |
 
 装到手机：
 
 ```bash
-adb install -r app/build/outputs/apk/release/QingYue-1.3.0-release.apk
+adb install -r app/build/outputs/apk/release/QingYue-1.3.1-release.apk
 ```
 
 也可以直接把 APK 传到手机上点击安装（需要允许「安装未知来源应用」）。
@@ -185,14 +184,14 @@ release 包用 `keystore/qingyue-release.jks` 签名：
 仓库自带 `.github/workflows/build-apk.yml`：**打 tag 才触发**（也可在 Actions 页手动触发）。
 
 ```bash
-git tag v1.3.0          # 需以 v 开头，建议与 versionName 一致，如 v1.3.0 / v1.3.1
-git push origin v1.3.0  # 推上去即触发编译
+git tag v1.3.1          # 需以 v 开头，建议与 versionName 一致，如 v1.3.1 / v1.3.2
+git push origin v1.3.1  # 推上去即触发编译
 ```
 
 产物有两个去处：
 
 - **GitHub Release**（仅 tag 构建）：自动创建/更新对应 tag 的 Release，并把 APK
-  作为附件挂上去，文件名形如 `QingYue-v1.3.0.apk`
+  作为附件挂上去，文件名形如 `QingYue-v1.3.1.apk`
   （**附件名必须纯 ASCII**：GitHub 会删掉 Release 资源名里的非 ASCII 字符）。
   已存在同名 Release 时会**覆盖**附件（`gh release upload --clobber`），可安全重跑。
 - **Artifact**（tag 与手动触发都有）：名为 `qingyue-release-apk`，保留 90 天。

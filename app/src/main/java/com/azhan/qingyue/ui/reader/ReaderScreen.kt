@@ -9,7 +9,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,6 +60,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -135,7 +138,7 @@ fun ReaderScreen(
             onRetry = viewModel::load,
             onSaveProgress = viewModel::saveProgress,
             onUpdateSettings = viewModel::updateSettings,
-            onClip = viewModel::addClipAt,
+            onClip = viewModel::addClip,
         )
     }
 }
@@ -150,7 +153,7 @@ private fun ReaderBody(
     onRetry: () -> Unit,
     onSaveProgress: (Int) -> Unit,
     onUpdateSettings: ((ReaderSettings) -> ReaderSettings) -> Unit,
-    onClip: (Int) -> Unit,
+    onClip: (Int, String) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     val document = state.document
@@ -225,7 +228,7 @@ private fun ReadingView(
     onBack: () -> Unit,
     onSaveProgress: (Int) -> Unit,
     onUpdateSettings: ((ReaderSettings) -> ReaderSettings) -> Unit,
-    onClip: (Int) -> Unit,
+    onClip: (Int, String) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     val guard = rememberScreenAwakeGuard()
@@ -239,6 +242,20 @@ private fun ReadingView(
 
     var barsVisible by remember { mutableStateOf(true) }
     var autoScrolling by remember { mutableStateOf(false) }
+
+    // 当前选中的文字：段落起始 offset + 段内字符区间。非 null 时显示「收藏」按钮
+    var picked by remember { mutableStateOf<Pair<Int, IntRange>?>(null) }
+
+    val handleSelect: (Int, IntRange) -> Unit = { paragraphOffset, range ->
+        picked = paragraphOffset to range
+    }
+
+    // 取出选中文字。区间是相对段落的，段落本身从 document 反查
+    val pickedText = picked?.let { (paragraphOffset, range) ->
+        val paragraph = document.paragraphs
+            .getOrNull(document.paragraphIndexForOffset(paragraphOffset))
+        paragraph?.text?.substring(range.first, range.last + 1)
+    }
     var touchTick by remember { mutableIntStateOf(0) }
     var suspended by remember { mutableStateOf(false) }
     var showSettingsPanel by remember { mutableStateOf(false) }
@@ -342,7 +359,7 @@ private fun ReadingView(
                             touchTick++
                         },
                         onToggleBars = { barsVisible = !barsVisible },
-                        onClip = onClip,
+                        onSelect = handleSelect,
                     )
 
                     ReadMode.PAGE -> PagedReader(
@@ -360,7 +377,7 @@ private fun ReadingView(
                         onReachEnd = { autoScrolling = false },
                         onTouch = { guard.onUserInteraction() },
                         onToggleBars = { barsVisible = !barsVisible },
-                        onClip = onClip,
+                        onSelect = handleSelect,
                     )
                 }
             }
@@ -391,6 +408,27 @@ private fun ReadingView(
                     label = if (settings.readMode == ReadMode.PAGE) "自动翻页中" else "自动滚屏中",
                     speed = settings.autoScrollSpeed,
                     onStop = { autoScrolling = false },
+                )
+            }
+        }
+
+        // 选中文字后浮现的收藏按钮。放底部中央，避开选择手柄所在的选中行
+        if (pickedText != null && pickedText.isNotBlank()) {
+            NeuButton(
+                onClick = {
+                    val (paragraphOffset, range) = picked!!
+                    onClip(paragraphOffset + range.first, pickedText)
+                    picked = null
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 96.dp),
+            ) {
+                Text(
+                    text = "收藏选中 ${pickedText.length} 字",
+                    color = palette.accent,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                 )
             }
         }
@@ -483,7 +521,7 @@ private fun ScrolledReader(
     onReachEnd: () -> Unit,
     onTouch: () -> Unit,
     onToggleBars: () -> Unit,
-    onClip: (Int) -> Unit,
+    onSelect: (Int, IntRange) -> Unit,
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
@@ -578,8 +616,8 @@ private fun ScrolledReader(
             ParagraphItem(
                 paragraph = paragraph,
                 settings = settings,
-                onClip = onClip,
                 onToggleBars = onToggleBars,
+                onSelect = onSelect,
             )
         }
     }
@@ -599,7 +637,7 @@ private fun PagedReader(
     onReachEnd: () -> Unit,
     onTouch: () -> Unit,
     onToggleBars: () -> Unit,
-    onClip: (Int) -> Unit,
+    onSelect: (Int, IntRange) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     val measurer = rememberTextMeasurer()
@@ -738,11 +776,83 @@ private fun PagedReader(
             PageContent(
                 page = loaded[index],
                 settings = settings,
-                onClip = onClip,
                 onToggleBars = onToggleBars,
+                onSelect = onSelect,
             )
         }
     }
+}
+
+/**
+ * 一段可选中的正文。
+ *
+ * 为什么用 `BasicTextField(readOnly)` 而不是 `SelectionContainer`：
+ * 后者在 Compose 1.7 / 1.8 里**拿不到选中的文本** —— 带 `onSelectionChange`
+ * 的重载是 `internal`，`Selection` 本身也是 `internal`，从应用层无法引用。
+ * 而 `BasicTextField` 的 `TextFieldValue.selection` 是公开 API，直接给字符区间。
+ *
+ * 高度不会跑偏：`BasicTextField` 与 `Text` 内部都是 `MultiParagraph`，
+ * 同样的 textStyle + 宽度下换行与行高一致，所以分页测量结果依然有效。
+ *
+ * 手势：`readOnly` 的输入框仍支持长按起选择与拖手柄；点击另外接管用来切工具栏。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SelectableSlice(
+    slice: PageSlice,
+    settings: ReaderSettings,
+    onToggleBars: () -> Unit,
+    onSelected: (IntRange) -> Unit,
+) {
+    val palette = LocalReaderPalette.current
+    val block = slice.blockStyle
+
+    var value by remember(slice.startOffset) {
+        mutableStateOf(TextFieldValue(slice.text, TextRange(slice.text.length)))
+    }
+
+    // 文本变了（重新分页）要同步，否则输入框还显示旧内容
+    LaunchedEffect(slice.text) {
+        if (value.text != slice.text) {
+            value = TextFieldValue(slice.text, TextRange(slice.text.length))
+        }
+    }
+
+    BasicTextField(
+        value = value,
+        onValueChange = { updated ->
+            value = updated
+            updated.selection.toRange(slice.text.length)?.let(onSelected)
+        },
+        readOnly = true,
+        textStyle = readerTextStyle(
+            settings = settings,
+            blockStyle = block,
+            isParagraphStart = slice.isParagraphStart,
+            color = palette.textPrimary,
+        ),
+        cursorBrush = SolidColor(Color.Transparent),
+        modifier = Modifier
+            .fillMaxWidth()
+            // 点击切工具栏；长按留给输入框自己起选择
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onToggleBars,
+            )
+            .padding(
+                start = readerIndentStart(settings, block),
+                top = readerSpacingBefore(settings, block),
+            ),
+    )
+}
+
+/** 把选中区间换算成 IntRange；空选返回 null。 */
+private fun TextRange.toRange(length: Int): IntRange? {
+    val a = min.coerceIn(0, length)
+    val b = max.coerceIn(0, length)
+    if (a == b) return null
+    return a until b
 }
 
 /** 渲染一整页。样式与间距必须与 [BookPaginator] 测量时完全一致，否则会溢出。 */
@@ -751,8 +861,8 @@ private fun PagedReader(
 private fun PageContent(
     page: BookPage,
     settings: ReaderSettings,
-    onClip: (Int) -> Unit,
     onToggleBars: () -> Unit,
+    onSelect: (Int, IntRange) -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     // 内边距已经由外层 BoxWithConstraints 承担，这里只管排版 ——
@@ -778,29 +888,11 @@ private fun PageContent(
                 else -> palette.textPrimary
             }
 
-            Text(
-                text = buildAnnotatedText(slice.text, slice.spans, color, palette.accent),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // 点击仍然交给外层 pager 切工具栏，长按则收藏这一段。
-                    // 这里显式接管点击（而不是让它冒泡），是为了让长按能稳定识别 ——
-                    // 两套手势竞争时，长按很容易被判成点击。
-                    .combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onToggleBars,
-                        onLongClick = { onClip(slice.startOffset) },
-                    )
-                    .padding(
-                        start = readerIndentStart(settings, block),
-                        top = readerSpacingBefore(settings, block),
-                    ),
-                style = readerTextStyle(
-                    settings = settings,
-                    blockStyle = block,
-                    isParagraphStart = slice.isParagraphStart,
-                    color = color,
-                ),
+            SelectableSlice(
+                slice = slice,
+                settings = settings,
+                onToggleBars = onToggleBars,
+                onSelected = { range -> onSelect(slice.startOffset, range) },
             )
         }
     }
@@ -811,7 +903,7 @@ private fun PageContent(
 private fun ParagraphItem(
     paragraph: Paragraph,
     settings: ReaderSettings,
-    onClip: (Int) -> Unit,
+    onSelect: (Int, IntRange) -> Unit,
     onToggleBars: () -> Unit,
 ) {
     val palette = LocalReaderPalette.current
@@ -839,28 +931,45 @@ private fun ParagraphItem(
         else -> palette.textPrimary
     }
 
-    Text(
-        text = buildAnnotatedText(paragraph.text, paragraph.spans, color, palette.accent),
+    var value by remember(paragraph.startOffset) {
+        mutableStateOf(TextFieldValue(paragraph.text, TextRange(paragraph.text.length)))
+    }
+
+    LaunchedEffect(paragraph.text) {
+        if (value.text != paragraph.text) {
+            value = TextFieldValue(paragraph.text, TextRange(paragraph.text.length))
+        }
+    }
+
+    BasicTextField(
+        value = value,
+        onValueChange = { updated ->
+            value = updated
+            updated.selection.toRange(paragraph.text.length)?.let { range ->
+                onSelect(paragraph.startOffset, range)
+            }
+        },
+        readOnly = true,
+        textStyle = readerTextStyle(
+            settings = settings,
+            blockStyle = block,
+            isParagraphStart = true,
+            color = color,
+        ),
+        cursorBrush = SolidColor(Color.Transparent),
         modifier = Modifier
             .fillMaxWidth()
-            // 点击切工具栏、长按收藏这一段 —— 与翻页模式保持一致
-            .combinedClickable(
+            // 点击切工具栏；长按留给输入框自己起选择
+            .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onToggleBars,
-                onLongClick = { onClip(paragraph.startOffset) },
             )
             .padding(
                 start = settings.horizontalPaddingDp.dp + readerIndentStart(settings, block),
                 end = settings.horizontalPaddingDp.dp,
                 top = readerSpacingBefore(settings, block),
             ),
-        style = readerTextStyle(
-            settings = settings,
-            blockStyle = block,
-            isParagraphStart = true,
-            color = color,
-        ),
     )
 }
 
