@@ -1,0 +1,7 @@
+Tapping a highlight now expands it in place instead of jumping to the book.
+
+* Tapping a highlight shows the full text right there. A highlight is a complete
+  passage on its own, so there is no need to open the book just to read it
+* Long-press and drag on the text to select it, then tap the button to save exactly
+  what you highlighted. This replaces the previous text-field approach, which
+  swallowed taps and could save a different passage than the one highlighted

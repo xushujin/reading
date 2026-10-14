@@ -31,6 +31,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,6 +77,9 @@ fun FavoritesScreen(
 
     val snackbarHost = remember { SnackbarHostState() }
 
+    // 展开查看全文的摘录。摘录本身是完整片段，点一下就地展开即可
+    var expandedIds by remember { mutableStateOf(setOf<Long>()) }
+
     LaunchedEffect(message) {
         val text = message ?: return@LaunchedEffect
         snackbarHost.showSnackbar(text)
@@ -118,8 +123,15 @@ fun FavoritesScreen(
                             items(clips, key = { "clip-${it.id}" }) { clip ->
                                 ClipCard(
                                     clip = clip,
+                                    expanded = expandedIds.contains(clip.id),
                                     onDelete = { viewModel.removeClip(clip) },
-                                    onClick = { onOpenBook(clip.bookId) },
+                                    onToggleExpanded = {
+                                        expandedIds = if (expandedIds.contains(clip.id)) {
+                                            expandedIds - clip.id
+                                        } else {
+                                            expandedIds + clip.id
+                                        }
+                                    },
                                 )
                             }
                         }
@@ -217,12 +229,18 @@ private fun TabSwitcher(
     }
 }
 
-/** 一条摘录。正文给足行数，书名/章节/时间压到一行小字。 */
+/**
+ * 一条摘录。
+ *
+ * 点击是**展开看全文**，不是跳回电子书 —— 摘录本身就是一个完整的内容片段，
+ * 在这里直接读就够了；真要回到上下文另有入口。
+ */
 @Composable
 private fun ClipCard(
     clip: ClipEntity,
+    expanded: Boolean,
     onDelete: () -> Unit,
-    onClick: () -> Unit,
+    onToggleExpanded: () -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     NeuSurface(
@@ -231,7 +249,7 @@ private fun ClipCard(
             .padding(horizontal = 12.dp, vertical = 4.dp),
         cornerRadius = 16.dp,
         elevation = 6.dp,
-        onClick = onClick,
+        onClick = onToggleExpanded,
     ) {
         Column(modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 10.dp)) {
             Text(
@@ -239,7 +257,8 @@ private fun ClipCard(
                 fontSize = 14.sp,
                 color = palette.textPrimary,
                 lineHeight = 22.sp,
-                maxLines = 6,
+                // 收起时给 6 行预览，展开后不截断
+                maxLines = if (expanded) Int.MAX_VALUE else 6,
                 overflow = TextOverflow.Ellipsis,
             )
 

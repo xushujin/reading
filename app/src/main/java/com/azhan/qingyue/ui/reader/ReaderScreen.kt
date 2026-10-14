@@ -820,13 +820,8 @@ private fun SelectableSlice(
         onTextLayout = { layout = it },
         modifier = Modifier
             .fillMaxWidth()
-            // 点击切工具栏：Text 不消费手势，这里能正常收到
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onToggleBars,
-            )
-            // 长按后拖动 = 选择。与上面的点击是不同手势，不会打架
+            // 长按后拖动 = 选择。必须排在 clickable 前面 ——
+            // 它消费掉长按序列后 clickable 就拿不到 up，不会再误触发切工具栏。
             .pointerInput(slice.startOffset) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { position ->
@@ -845,6 +840,12 @@ private fun SelectableSlice(
                     },
                 )
             }
+            // 短按切工具栏。Text 不吞手势，能正常收到
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onToggleBars,
+            )
             .padding(
                 start = readerIndentStart(settings, block),
                 top = readerSpacingBefore(settings, block),
@@ -973,13 +974,7 @@ private fun ParagraphItem(
         onTextLayout = { layout = it },
         modifier = Modifier
             .fillMaxWidth()
-            // 点击切工具栏；Text 不消费手势，能正常收到
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onToggleBars,
-            )
-            // 长按后拖动 = 选择
+            // 长按后拖动 = 选择，排在 clickable 前面
             .pointerInput(paragraph.startOffset) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { position ->
@@ -1002,6 +997,12 @@ private fun ParagraphItem(
                     },
                 )
             }
+            // 短按切工具栏
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onToggleBars,
+            )
             .padding(
                 start = settings.horizontalPaddingDp.dp + readerIndentStart(settings, block),
                 end = settings.horizontalPaddingDp.dp,
