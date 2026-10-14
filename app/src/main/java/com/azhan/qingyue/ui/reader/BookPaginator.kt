@@ -180,7 +180,6 @@ class BookPaginator(
         // 不预留的话最后一行偶尔会被切掉一条边。
         val safetyMarginPx = with(density) { 2.dp.toPx() }
         val pageHeight = heightPx.toFloat() - safetyMarginPx
-        val constraints = Constraints(maxWidth = widthPx)
 
         val pages = ArrayList<BookPage>(256)
         var slices = ArrayList<PageSlice>(24)
@@ -219,6 +218,17 @@ class BookPaginator(
                 )
                 continue
             }
+
+            // 渲染时每个 slice 的 Text 都带 padding(start = readerIndentStart(...))，
+            // 可用宽度因此变窄 —— 测量必须用同一个宽度。否则列表 / 引用 / 代码块会被
+            // 按全宽排版，渲染时行宽不够、多出来的行溢出被裁。正文缩进为 0，
+            // 所以只有这几类块会中招。
+            val indentPx = with(density) {
+                readerIndentStart(settings, paragraph.blockStyle).toPx()
+            }
+            val constraints = Constraints(
+                maxWidth = (widthPx - indentPx).toInt().coerceAtLeast(1),
+            )
 
             var remaining = paragraph.text
             var consumed = 0

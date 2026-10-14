@@ -23,6 +23,13 @@ Repo: https://github.com/xushujin/reading.git
 # 从源码构建。本项目在无签名材料时也能构建成功（产出未签名 APK），
 # F-Droid 会用它自己的密钥签名，所以这里不需要任何签名配置。
 Builds:
+  - versionName: 1.2.4
+    versionCode: 8
+    commit: v1.2.4
+    subdir: app
+    gradle:
+      - yes
+
   - versionName: 1.2.3
     versionCode: 7
     commit: v1.2.3
@@ -76,5 +83,5 @@ Builds:
 # 与本项目 .github/workflows/build-apk.yml 的触发方式一致。
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.2.3
-CurrentVersionCode: 7
+CurrentVersion: 1.2.4
+CurrentVersionCode: 8

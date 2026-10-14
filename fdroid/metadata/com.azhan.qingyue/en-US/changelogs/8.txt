@@ -1,0 +1,6 @@
+Fixed a width mismatch that could clip list, quote and code blocks in page mode.
+
+* Pagination measured those blocks at the full text width, but rendering indents
+  them by 8-16dp. The narrower rendered width needed more lines than pagination
+  had reserved for them, so the extra lines were clipped at the bottom of the page.
+  Measurement now uses the same width as rendering
