@@ -38,7 +38,6 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,6 +76,7 @@ import com.azhan.qingyue.R
 import com.azhan.qingyue.data.local.BookEntity
 import com.azhan.qingyue.data.local.ShelfWithBooks
 import com.azhan.qingyue.ui.neu.NeuButton
+import com.azhan.qingyue.ui.neu.NeuDropdownMenu
 import com.azhan.qingyue.ui.neu.NeuDialog
 import com.azhan.qingyue.ui.neu.NeuIconButton
 import com.azhan.qingyue.ui.neu.NeuProgress
@@ -540,7 +540,7 @@ private fun GroupHeader(
                         modifier = Modifier.size(18.dp),
                     )
                 }
-                DropdownMenu(
+                NeuDropdownMenu(
                     expanded = menuOpen,
                     onDismissRequest = { menuOpen = false },
                 ) {

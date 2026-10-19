@@ -1,0 +1,6 @@
+Menu popups restyled to match the app.
+
+* The "..." menus on the shelf (book row and folder header) still used the
+  platform dropdown look. They now use the theme surface color, larger rounded
+  corners and the same thin border as book covers, so the whole delete flow —
+  menu, confirm dialogs and all — speaks the same visual language.
