@@ -1,0 +1,10 @@
+The reading area now has a single fixed (full-screen) height.
+
+* Toolbars, the lock bar and the auto-scroll bar became overlays: showing or
+  hiding them no longer changes the content height, so page layout is computed
+  once and stays valid — no more full re-pagination when toggling the toolbar
+  (for an 11-million-character book that used to take tens of seconds per toggle).
+* Scrolling mode compensates with bottom padding so the last line can scroll
+  clear of the bottom bar while it is shown.
+* Trade-off, chosen deliberately: while the toolbars are visible they cover the
+  first and last lines of the page; hide them to see the full page.

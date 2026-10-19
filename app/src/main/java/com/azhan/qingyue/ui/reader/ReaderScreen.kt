@@ -2,10 +2,8 @@ package com.azhan.qingyue.ui.reader
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -77,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -377,23 +376,88 @@ private fun ReadingView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(palette.background),
+            .background(palette.background)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
     ) {
-        // 上中下分栏：正文是独立的一栏，工具栏显隐只改变它的高度。
+        // 正文区恒定占满全部可用高度（状态栏 / 导航栏之外）。
         //
-        // 之前用「浮层 + contentPadding」是挡不住的 —— contentPadding 只作用于
-        // 列表的首尾，滚到中间就失效，文字会从按钮底下穿过去。
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+        // 1.3.13 及以前工具栏用「分栏占位」：显隐会改变正文区高度，而翻页模式
+        // 的分页是按高度算的 —— 每次显隐都整本重排，1100 万字的书一次几十秒。
+        // 现在按单一高度方案：工具栏 / 锁定条 / 滚屏条全部浮在文字上，
+        // 分页永远只按全屏高度算一次，显隐只是浮层淡入淡出，零重排。
+        //
+        // 代价是工具栏显示时会盖住首尾一两行 —— 这是单一高度方案的固有取舍，
+        // 用户明确选择用它换取排版稳定。
+        when (settings.readMode) {
+            ReadMode.SCROLL -> ScrolledReader(
+                document = document,
+                settings = settings,
+                initialOffset = book?.lastOffset ?: 0,
+                autoScrolling = autoScrolling,
+                suspended = suspended,
+                seekTarget = seekTarget,
+                onSeekHandled = { seekTarget = null },
+                onOffsetChanged = { offset ->
+                    if (offset != currentOffset) picked = null
+                    currentOffset = offset
+                    onSaveProgress(offset)
+                },
+                onReachEnd = { autoScrolling = false },
+                onTouch = {
+                    guard.onUserInteraction()
+                    touchTick++
+                },
+                onToggleBars = {
+                    if (!locked) {
+                        picked = null
+                        barsVisible = !barsVisible
+                    }
+                },
+                selectable = !locked,
+                selected = picked,
+                onSelect = handleSelect,
+                // 滚动模式的底栏是浮层，留出底部空白让最后一行能滚上来
+                bottomInset = if (barsVisible) 112.dp else 0.dp,
+            )
+
+            ReadMode.PAGE -> PagedReader(
+                bookId = book?.id ?: -1L,
+                document = document,
+                settings = settings,
+                initialOffset = book?.lastOffset ?: 0,
+                currentOffset = currentOffset,
+                autoScrolling = autoScrolling,
+                seekTarget = seekTarget,
+                onSeekHandled = { seekTarget = null },
+                onOffsetChanged = { offset ->
+                    if (offset != currentOffset) picked = null
+                    currentOffset = offset
+                    onSaveProgress(offset)
+                },
+                onReachEnd = { autoScrolling = false },
+                onTouch = { guard.onUserInteraction() },
+                onToggleBars = {
+                    if (!locked) {
+                        picked = null
+                        barsVisible = !barsVisible
+                    }
+                },
+                selectable = !locked,
+                selected = picked,
+                onSelect = handleSelect,
+            )
+        }
+
+        // 顶栏 / 底栏 / 各控制条全部是浮层，只做淡入淡出 ——
+        // 不参与布局，正文区高度恒定，分页结果永远有效。
+        AnimatedVisibility(
+            visible = barsVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            AnimatedVisibility(
-                visible = barsVisible,
-                enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
-                exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
-            ) {
+            Box(modifier = Modifier.background(palette.background)) {
                 ReaderTopBar(
                     title = book?.title ?: document.title,
                     subtitle = chapterTitle,
@@ -402,76 +466,15 @@ private fun ReadingView(
                     onLock = { locked = true },
                 )
             }
+        }
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            ) {
-                when (settings.readMode) {
-                    ReadMode.SCROLL -> ScrolledReader(
-                        document = document,
-                        settings = settings,
-                        initialOffset = book?.lastOffset ?: 0,
-                        autoScrolling = autoScrolling,
-                        suspended = suspended,
-                        seekTarget = seekTarget,
-                        onSeekHandled = { seekTarget = null },
-                        onOffsetChanged = { offset ->
-                            if (offset != currentOffset) picked = null
-                            currentOffset = offset
-                            onSaveProgress(offset)
-                        },
-                        onReachEnd = { autoScrolling = false },
-                        onTouch = {
-                            guard.onUserInteraction()
-                            touchTick++
-                        },
-                        onToggleBars = {
-                            if (!locked) {
-                                picked = null
-                                barsVisible = !barsVisible
-                            }
-                        },
-                        selectable = !locked,
-                        selected = picked,
-                        onSelect = handleSelect,
-                    )
-
-                    ReadMode.PAGE -> PagedReader(
-                        bookId = book?.id ?: -1L,
-                        document = document,
-                        settings = settings,
-                        initialOffset = book?.lastOffset ?: 0,
-                        currentOffset = currentOffset,
-                        autoScrolling = autoScrolling,
-                        seekTarget = seekTarget,
-                        onSeekHandled = { seekTarget = null },
-                        onOffsetChanged = { offset ->
-                            if (offset != currentOffset) picked = null
-                            currentOffset = offset
-                            onSaveProgress(offset)
-                        },
-                        onReachEnd = { autoScrolling = false },
-                        onTouch = { guard.onUserInteraction() },
-                        onToggleBars = {
-                            if (!locked) {
-                                picked = null
-                                barsVisible = !barsVisible
-                            }
-                        },
-                        selectable = !locked,
-                        selected = picked,
-                        onSelect = handleSelect,
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = barsVisible,
-                enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-                exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
-            ) {
+        AnimatedVisibility(
+            visible = barsVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            Box(modifier = Modifier.background(palette.background)) {
                 ReaderBottomBar(
                     progress = progress,
                     chapterIndex = chapterIndex,
@@ -482,33 +485,33 @@ private fun ReadingView(
                     onOpenSettings = { showSettingsPanel = true },
                 )
             }
+        }
 
-            // 工具栏收起后仍需要一个「停」的入口。做成占位的一栏而不是浮动按钮，
-            // 否则按钮会压在正文右下角上 —— 那就又变成重合了。
-            AnimatedVisibility(
-                visible = autoScrolling && !barsVisible,
-                enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-                exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom),
-            ) {
+        // 自动滚屏时的「停」入口，同样是浮层。
+        AnimatedVisibility(
+            visible = autoScrolling && !barsVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            Box(modifier = Modifier.background(palette.background)) {
                 AutoScrollBar(
                     label = if (settings.readMode == ReadMode.PAGE) "自动翻页中" else "自动滚屏中",
                     speed = settings.autoScrollSpeed,
                     onStop = { autoScrolling = false },
                 )
             }
+        }
 
-            // 锁定条同样占位在正文之外，不浮在文字上 —— 1.3.7 的浮层版本
-            // 会挡住最后一行，长按解锁时反而看不到自己读到哪。
-            //
-            // 只做淡入淡出、不做高度动画：高度每帧变化会让翻页模式跟着重新分页
-            // （几百次文本测量），一次锁定要重排十几遍，肉眼可见地卡。
-            AnimatedVisibility(
-                visible = locked,
-                enter = fadeIn(),
-                exit = fadeOut(),
-            ) {
-                LockBar(onUnlock = { locked = false })
-            }
+        // 锁定条。同样是浮层 —— 单一高度方案下它只能盖在文字上，
+        // 但解锁是长按，几乎不会在阅读时误触。
+        AnimatedVisibility(
+            visible = locked,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            LockBar(onUnlock = { locked = false })
         }
 
         // 选中文字后浮现的收藏按钮。放底部中央，避开选择手柄所在的选中行
@@ -521,7 +524,8 @@ private fun ReadingView(
                 },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 96.dp),
+                    // 底栏现在是浮层：显示时把按钮抬到它上面，隐藏时贴近底部
+                    .padding(bottom = if (barsVisible) 132.dp else 40.dp),
             ) {
                 Text(
                     text = "收藏选中 ${pickedText.length} 字",
@@ -537,7 +541,7 @@ private fun ReadingView(
             hostState = snackbarHost,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 96.dp),
+                .padding(bottom = if (barsVisible) 132.dp else 40.dp),
         )
 
         if (showSettingsPanel) {
@@ -621,6 +625,8 @@ private fun ScrolledReader(
     selectable: Boolean,
     selected: ClipSelection?,
     onSelect: (ClipSelection?) -> Unit,
+    /** 底部浮层（进度条等）的高度补偿，让最后一行能滚出浮层。 */
+    bottomInset: Dp,
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
@@ -703,7 +709,9 @@ private fun ScrolledReader(
                     }
                 }
             },
-        contentPadding = PaddingValues(top = 8.dp, bottom = 14.dp),
+        // bottomInset：底栏是浮层，工具栏显示时给列表尾部留出等高空白，
+        // 滚到底时最后一行不会被进度条压住。浮层收起后归零，正文回到全屏。
+        contentPadding = PaddingValues(top = 8.dp, bottom = 14.dp + bottomInset),
     ) {
         items(
             items = document.paragraphs,
