@@ -38,13 +38,24 @@ object TxtParser {
             buffer.setLength(0)
         }
 
-        for (line in text.split('\n')) {
+        // 逐行扫描而不是 text.split('\n')：1100 万字的书会切出几十万个行字符串，
+        // 再装进一个临时列表 —— 内存和 GC 都是白白多付一份。
+        var lineStart = 0
+        val len = text.length
+        while (lineStart < len) {
+            val nl = text.indexOf('\n', lineStart)
+            val end = if (nl == -1) len else nl
+            val line = text.substring(lineStart, end)
+
             if (ChapterRules.isChapterTitle(line)) {
                 if (buffer.isNotBlank() || currentTitle.isNotEmpty()) flush()
                 currentTitle = line.trim()
             } else {
                 buffer.append(line).append('\n')
             }
+
+            if (nl == -1) break
+            lineStart = nl + 1
         }
         flush()
 

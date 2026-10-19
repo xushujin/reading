@@ -1,0 +1,12 @@
+Big-book performance and heat fixes.
+
+* Pagination results are now cached per layout/settings, so showing or hiding
+  the toolbar and re-entering a book no longer re-paginates the whole text
+  (for a 11-million-character book that used to mean another minute of full load).
+* Pagination pauses while the app is in the background and runs at background
+  thread priority — the phone no longer stays hot after leaving the reader.
+* HTML-to-text conversion was rewritten as a single pass (previously five regex
+  passes over the whole book, the main source of GC pressure while parsing).
+  Byte-for-byte identical output, verified against the old implementation.
+* The layout step now says "正在排版…" instead of a bare spinner, so it is clear
+  the app is not stuck.

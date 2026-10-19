@@ -56,14 +56,6 @@ internal object TextDecoding {
 /** EPUB 内部 XHTML 转纯文本。 */
 internal object HtmlText {
 
-    private val SCRIPT_STYLE = Regex("(?is)<(script|style)\\b[^>]*>.*?</\\1\\s*>")
-    private val LINE_BREAK = Regex("(?i)<br\\s*/?\\s*>")
-    private val BLOCK_END = Regex(
-        "(?i)</(p|div|h[1-6]|li|tr|section|article|blockquote|dd|dt|pre|figure|td)\\s*>"
-    )
-    private val TAG = Regex("<[^>]*>")
-    private val ENTITY = Regex("&(#x?[0-9a-fA-F]+|[a-zA-Z]+);")
-
     private val NAMED_ENTITIES = mapOf(
         "nbsp" to " ", "ensp" to " ", "emsp" to " ",
         "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'",
@@ -74,25 +66,165 @@ internal object HtmlText {
         "bull" to "•", "dagger" to "†", "sect" to "§", "para" to "¶",
     )
 
+    private val BLOCK_END_NAMES = setOf(
+        "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr",
+        "section", "article", "blockquote", "dd", "dt", "pre", "figure", "td",
+    )
+
+    /**
+     * HTML 转纯文本，单遍扫描。
+     *
+     * 1.3.12 及以前是 5 个正则各过一遍全文 —— 对 1100 万字的书，等于把
+     * 22MB 的字符串复制 4 次，再跑 5 遍正则，手机堆里 GC 风暴，转圈的时间
+     * 大半耗在这里。改成一遍状态机：跳过 script/style、`<br>` 与块级闭合标签
+     * 转 `\n`、其余标签丢弃、实体就地解码。语义与原来的正则链一致
+     * （`HtmlTextTest` 里留着旧实现做逐字节对照）。
+     */
     fun toPlainText(html: String): String {
-        var text = SCRIPT_STYLE.replace(html) { "" }
-        text = LINE_BREAK.replace(text) { "\n" }
-        text = BLOCK_END.replace(text) { "\n" }
-        text = TAG.replace(text) { "" }
-        return unescape(text)
+        val n = html.length
+        val out = StringBuilder(minOf(n, 8 * 1024 * 1024) + 16)
+        var i = 0
+
+        while (i < n) {
+            val c = html[i]
+
+            if (c == '<') {
+                val close = html.indexOf('>', i)
+                if (close == -1) {
+                    // TAG = <[^>]*>，没有 '>' 就不是标签，按字面文本保留
+                    out.append(c)
+                    i++
+                    continue
+                }
+
+                val name = tagName(html, i, close)
+                when {
+                    name == "script" || name == "style" -> {
+                        // 内容连同闭合标签整体丢弃；找不到闭合则只丢开标签本身
+                        // （原正则要求必须存在 </script>，否则整体不匹配）
+                        val end = findClosingTagEnd(html, name, close + 1)
+                        i = if (end != -1) end else close + 1
+                    }
+
+                    name == "br" && isLineBreak(html, i, close) -> {
+                        out.append('\n')
+                        i = close + 1
+                    }
+
+                    name.length > 1 && name[0] == '/' &&
+                        name.substring(1) in BLOCK_END_NAMES &&
+                        isBlockEnd(html, i, close) -> {
+                        out.append('\n')
+                        i = close + 1
+                    }
+
+                    else -> i = close + 1 // 其余标签一律丢弃
+                }
+                continue
+            }
+
+            if (c == '&') {
+                val decoded = decodeEntityAt(html, i)
+                if (decoded != null) {
+                    out.append(decoded.first)
+                    i = decoded.second
+                    continue
+                }
+            }
+
+            out.append(c)
+            i++
+        }
+
+        return out.toString()
     }
 
-    fun unescape(input: String): String = ENTITY.replace(input) { match ->
-        val body = match.groupValues[1]
-        when {
-            body.startsWith("#x", ignoreCase = true) ->
-                codePointOrNull(body.substring(2), 16) ?: match.value
-
-            body.startsWith("#") ->
-                codePointOrNull(body.substring(1), 10) ?: match.value
-
-            else -> NAMED_ENTITIES[body.lowercase()] ?: match.value
+    /** 标签名（小写）；闭合标签带 "/" 前缀，如 "/p"。 */
+    private fun tagName(html: String, start: Int, close: Int): String {
+        var p = start + 1
+        var closing = false
+        if (p < close && html[p] == '/') {
+            p++
+            closing = true
         }
+        val nameStart = p
+        while (p < close && (html[p].isLetterOrDigit())) p++
+        val name = html.substring(nameStart, p).lowercase()
+        return if (closing) "/$name" else name
+    }
+
+    /** `<br ...>` 的属性区必须只剩空白和至多一个斜杠（与原 LINE_BREAK 一致，不允许带其它属性）。 */
+    private fun isLineBreak(html: String, start: Int, close: Int): Boolean {
+        val inner = html.substring(start + 3, close) // "br" 之后、'>' 之前
+        var p = 0
+        while (p < inner.length && inner[p].isWhitespace()) p++
+        if (p < inner.length && inner[p] == '/') p++
+        while (p < inner.length && inner[p].isWhitespace()) p++
+        return p == inner.length
+    }
+
+    /** `</p ...>` 的名字后必须只剩空白（与原 BLOCK_END 一致，`</p class=x>` 不算）。 */
+    private fun isBlockEnd(html: String, start: Int, close: Int): Boolean {
+        var p = start + 2 // 跳过 "</"
+        while (p < close && html[p].isLetterOrDigit()) p++
+        while (p < close && html[p].isWhitespace()) p++
+        return p == close
+    }
+
+    /** 从 [from] 起找 `</name ...>`，返回 '>' 之后的位置；找不到返回 -1。 */
+    private fun findClosingTagEnd(html: String, name: String, from: Int): Int {
+        val closeTag = "</$name"
+        var idx = indexOfIgnoreCase(html, closeTag, from)
+        while (idx != -1) {
+            var p = idx + closeTag.length
+            while (p < html.length && html[p].isWhitespace()) p++
+            if (p < html.length && html[p] == '>') return p + 1
+            idx = indexOfIgnoreCase(html, closeTag, idx + 1)
+        }
+        return -1
+    }
+
+    private fun indexOfIgnoreCase(html: String, needle: String, from: Int): Int {
+        val n = html.length
+        val m = needle.length
+        if (m == 0) return from
+        var i = from
+        while (i <= n - m) {
+            if (html.regionMatches(i, needle, 0, m, ignoreCase = true)) return i
+            i++
+        }
+        return -1
+    }
+
+    /**
+     * 在 [amp] 处尝试解码一个实体（`&nbsp;` / `&#65;` / `&#x1F600;`）。
+     * 返回 (替换文本, 下一个下标)；不是合法实体返回 null，调用方按字面输出 '&'。
+     */
+    private fun decodeEntityAt(html: String, amp: Int): Pair<String, Int>? {
+        val limit = minOf(html.length, amp + 34)
+        var p = amp + 1
+        while (p < limit) {
+            val ch = html[p]
+            if (ch == ';') {
+                val body = html.substring(amp + 1, p)
+                val replacement = decodeEntityBody(body) ?: return null
+                return replacement to (p + 1)
+            }
+            if (!(ch == '#' || ch.isLetterOrDigit())) return null
+            p++
+        }
+        return null
+    }
+
+    private fun decodeEntityBody(body: String): String? = when {
+        // 注意保持与旧正则一致：这里 #x 是小写敏感的（正则没有 IGNORE_CASE）
+        body.startsWith("#x") ->
+            codePointOrNull(body.substring(2), 16)
+
+        body.startsWith("#") ->
+            codePointOrNull(body.substring(1), 10)
+
+        else -> NAMED_ENTITIES[body.lowercase()]
     }
 
     private fun codePointOrNull(raw: String, radix: Int): String? {

@@ -46,43 +46,55 @@ class BookRepository(
     suspend fun findBook(bookId: Long): BookEntity? = dao.findBook(bookId)
 
     suspend fun loadDocument(book: BookEntity): BookDocument = withContext(Dispatchers.IO) {
-        documentCache.get(book.id)?.let { return@withContext it }
-
-        val stamp = querySourceStamp(Uri.parse(book.documentUri))
-        if (stamp != null) {
-            diskCache.load(book.id, stamp)?.let { cached ->
-                documentCache.put(book.id, cached)
-                return@withContext cached
-            }
+        // 大书解析是秒到十几秒的 CPU 大户，降到后台优先级 —— 发热小一点，
+        // 前台手势仍然跟手。快取命中时什么都不做，没有代价。
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        try {
+            loadDocumentInternal(book)
+        } finally {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT)
         }
+    }
 
-        val bytes = readBytes(Uri.parse(book.documentUri), book.fileName)
-        val content = when (book.format.lowercase()) {
-            "epub" -> EpubParser.parse(bytes, book.title)
-            "mobi" -> MobiParser.parse(bytes, book.title)
-            "md", "markdown" -> MarkdownParser.parse(
-                TextDecoding.decode(bytes),
-                book.title,
+    private suspend fun loadDocumentInternal(book: BookEntity): BookDocument =
+        withContext(Dispatchers.IO) {
+            documentCache.get(book.id)?.let { return@withContext it }
+
+            val stamp = querySourceStamp(Uri.parse(book.documentUri))
+            if (stamp != null) {
+                diskCache.load(book.id, stamp)?.let { cached ->
+                    documentCache.put(book.id, cached)
+                    return@withContext cached
+                }
+            }
+
+            val bytes = readBytes(Uri.parse(book.documentUri), book.fileName)
+            val content = when (book.format.lowercase()) {
+                "epub" -> EpubParser.parse(bytes, book.title)
+                "mobi" -> MobiParser.parse(bytes, book.title)
+                "md", "markdown" -> MarkdownParser.parse(
+                    TextDecoding.decode(bytes),
+                    book.title,
+                )
+
+                else -> TxtParser.parse(bytes, book.title)
+            }
+
+            val document = BookDocumentBuilder.build(content)
+
+            val coverPath = content.coverBytes?.let { saveCover(book.id, it) } ?: book.coverPath
+            dao.updateBookMeta(
+                id = book.id,
+                title = content.title.ifBlank { book.title },
+                author = content.author ?: book.author,
+                charCount = document.totalChars.toLong(),
+                coverPath = coverPath,
             )
 
-            else -> TxtParser.parse(bytes, book.title)
+            documentCache.put(book.id, document)
+            stamp?.let { diskCache.save(book.id, document, it) }
+            document
         }
-
-        val document = BookDocumentBuilder.build(content)
-
-        val coverPath = content.coverBytes?.let { saveCover(book.id, it) } ?: book.coverPath
-        dao.updateBookMeta(
-            id = book.id,
-            title = content.title.ifBlank { book.title },
-            author = content.author ?: book.author,
-            charCount = document.totalChars.toLong(),
-            coverPath = coverPath,
-        )
-
-        documentCache.put(book.id, document)
-        stamp?.let { diskCache.save(book.id, document, it) }
-        document
-    }
 
     /**
      * 查源文件指纹（size + lastModified）。一次单行 ContentResolver 查询，

@@ -172,8 +172,18 @@ class BookPaginator(
      * 于是分页被反复重启。而 `measurer.measure` 本身不响应取消 ——
      * 旧任务会一路算到底，和最后一次抢 CPU，把真正的分页拖慢成秒级。
      * 加了取消检查，过期的分页会立刻让路。
+     *
+     * [gate] 是可选的暂停闸门：大书分页要几十秒，用户把 App 退到后台时
+     * 这个协程并不会被取消（activity 只是 stopped，重组还在），
+     * 会在后台继续满负荷烧 CPU —— 手机在口袋里发烫就是这么来的。
+     * gate 在每个段落间被调用一次，退到后台就挂起，回来继续。
      */
-    suspend fun paginate(document: BookDocument, widthPx: Int, heightPx: Int): List<BookPage> {
+    suspend fun paginate(
+        document: BookDocument,
+        widthPx: Int,
+        heightPx: Int,
+        gate: (suspend () -> Unit)? = null,
+    ): List<BookPage> {
         if (widthPx <= 0 || heightPx <= 0) return emptyList()
 
         // 留 2dp 余量：字体度量与实际绘制之间可能有亚像素差异，
@@ -196,6 +206,7 @@ class BookPaginator(
         for (paragraph in document.paragraphs) {
             // 每个段落检查一次取消：过期的分页立即让路给新的
             currentCoroutineContext().ensureActive()
+            gate?.invoke()
 
             // 水平线没有文字，下面的 while 进不去，必须单独计入高度 ——
             // 否则它占的那点空间不算进分页，渲染时却会真的画出来，

@@ -46,6 +46,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -71,12 +72,15 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -435,6 +439,7 @@ private fun ReadingView(
                     )
 
                     ReadMode.PAGE -> PagedReader(
+                        bookId = book?.id ?: -1L,
                         document = document,
                         settings = settings,
                         initialOffset = book?.lastOffset ?: 0,
@@ -718,6 +723,7 @@ private fun ScrolledReader(
 /** 翻页模式的正文区：按屏幕尺寸预分页，左右滑动翻页。 */
 @Composable
 private fun PagedReader(
+    bookId: Long,
     document: BookDocument,
     settings: ReaderSettings,
     initialOffset: Int,
@@ -737,6 +743,18 @@ private fun PagedReader(
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
 
+    // 退到后台（ON_STOP）时暂停预分页：activity stopped 不会取消协程，
+    // 不暂停的话排版会在后台继续满负荷烧 CPU —— 手机放兜里发烫就是这么来的。
+    var paused by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            paused = event == Lifecycle.Event.ON_STOP
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // 内边距必须加在 BoxWithConstraints 这一层：分页用的就是 constraints 给出的
     // 可用尺寸。如果 padding 挂在里面的 PageContent 上，分页会按「未扣除内边距」的
     // 高度计算，每页多塞进一两行 —— 那一行就会溢出屏幕底部被切掉半截。
@@ -749,18 +767,50 @@ private fun PagedReader(
         val widthPx = constraints.maxWidth
         val heightPx = constraints.maxHeight
 
-        // 分页是纯计算（几百次文本测量），丢到后台线程，别卡住首帧。
+        // 分页是纯计算（大书要几十秒），丢到后台线程，别卡住首帧。
+        // 结果按 (bookId, 宽, 高, 排版设置) 缓存 —— 工具栏显隐只是换了个高度键，
+        // 来回切换不该把整本书反复重排（1100 万字的书重排一次要几十秒）。
         val pages by produceState<List<BookPage>?>(
-            initialValue = null,
+            initialValue = PaginateCache.get(
+                PaginateKey(bookId, document, widthPx, heightPx, settings),
+            ),
             document, settings, widthPx, heightPx,
         ) {
-            value = if (widthPx <= 0 || heightPx <= 0) {
+            val key = PaginateKey(bookId, document, widthPx, heightPx, settings)
+            PaginateCache.get(key)?.let { cached ->
+                value = cached
+                return@produceState
+            }
+
+            val computed = if (widthPx <= 0 || heightPx <= 0) {
                 emptyList()
             } else {
                 withContext(Dispatchers.Default) {
-                    BookPaginator(measurer, settings, density)
-                        .paginate(document, widthPx, heightPx)
+                    // 后台优先级：排版是分钟级 CPU 大户，降到后台档让发热小一点、
+                    // UI 手势仍然跟手。finally 恢复，避免污染线程池里的其它任务。
+                    android.os.Process.setThreadPriority(
+                        android.os.Process.THREAD_PRIORITY_BACKGROUND,
+                    )
+                    try {
+                        BookPaginator(measurer, settings, density).paginate(
+                            document = document,
+                            widthPx = widthPx,
+                            heightPx = heightPx,
+                            // 退到后台就挂起：activity 只是 stopped、协程不会被取消，
+                            // 不加这道闸的话排版会在用户看不见的地方继续烧满 CPU。
+                            gate = { while (paused) delay(400) },
+                        )
+                    } finally {
+                        android.os.Process.setThreadPriority(
+                            android.os.Process.THREAD_PRIORITY_DEFAULT,
+                        )
+                    }
                 }
+            }
+            value = computed
+
+            if (computed.isNotEmpty()) {
+                PaginateCache.put(key, computed)
             }
         }
 
@@ -770,7 +820,12 @@ private fun PagedReader(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator(color = palette.accent, strokeWidth = 2.dp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = palette.accent, strokeWidth = 2.dp)
+                    Spacer(Modifier.height(14.dp))
+                    // 大书这一步要几十秒，给个明确的说法，别让用户以为卡死了
+                    Text("正在排版…", color = palette.textSecondary, fontSize = 13.sp)
+                }
             }
             return@BoxWithConstraints
         }
