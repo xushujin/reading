@@ -62,6 +62,10 @@
 - 目录跳转：EPUB 按 spine 章节；TXT 按章节标题正则识别。章节表存的是段落号，
   跳转前统一换算成字符偏移
 - 进度保存做了防抖（停顿 600ms 才落库），快速滑动不会疯狂写库
+- **打开速度**：解析结果落一份磁盘缓存（`files/doccache/`，上限 160MB 按最旧淘汰），
+  首次打开正常解析并写入缓存，之后再打开同一本书只剩一次反序列化 ——
+  大书（尤其 MOBI 的解压）从数秒降到零点几秒。缓存有效性靠源文件指纹
+  （大小 + 修改时间）校验，文件被替换会自动失效重解析，不会读出错版内容
 
 ### 3. 排版与主题
 
@@ -128,7 +132,8 @@ reading/
     │       │   ├── prefs/SettingsStore.kt # DataStore：主题 / 排版 / 常亮策略
     │       │   └── repo/
     │       │       ├── LibraryRepository.kt # SAF 扫描 + 书架排序 + 移除
-    │       │       └── BookRepository.kt    # 加载 / 进度 / 封面 / 缓存清理
+    │       │       ├── BookRepository.kt    # 加载 / 进度 / 封面 / 缓存清理
+    │       │       └── DocumentDiskCache.kt # 解析结果磁盘缓存（指纹校验，二次打开免解析）
     │       ├── ui/
     │       │   ├── QingYueRoot.kt       # 导航（4 个路由，字符串路由）
     │       │   ├── theme/               # 五套阅读配色 + 亮暗外壳配色
@@ -179,13 +184,13 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 | 包 | 路径 | 体积 |
 |---|---|---|
-| release（推荐） | `app/build/outputs/apk/release/QingYue-1.3.10-release.apk` | **1.3 MB** |
-| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.3.10-debug.apk` | 16.7 MB |
+| release（推荐） | `app/build/outputs/apk/release/QingYue-1.3.11-release.apk` | **1.3 MB** |
+| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.3.11-debug.apk` | 16.7 MB |
 
 装到手机：
 
 ```bash
-adb install -r app/build/outputs/apk/release/QingYue-1.3.10-release.apk
+adb install -r app/build/outputs/apk/release/QingYue-1.3.11-release.apk
 ```
 
 也可以直接把 APK 传到手机上点击安装（需要允许「安装未知来源应用」）。
@@ -208,14 +213,14 @@ release 包用 `keystore/qingyue-release.jks` 签名：
 仓库自带 `.github/workflows/build-apk.yml`：**打 tag 才触发**（也可在 Actions 页手动触发）。
 
 ```bash
-git tag v1.3.10          # 需以 v 开头，建议与 versionName 一致
-git push origin v1.3.10  # 推上去即触发编译
+git tag v1.3.11          # 需以 v 开头，建议与 versionName 一致
+git push origin v1.3.11  # 推上去即触发编译
 ```
 
 产物有两个去处：
 
 - **GitHub Release**（仅 tag 构建）：自动创建/更新对应 tag 的 Release，并把 APK
-  作为附件挂上去，文件名形如 `QingYue-v1.3.10.apk`
+  作为附件挂上去，文件名形如 `QingYue-v1.3.11.apk`
   （**附件名必须纯 ASCII**：GitHub 会删掉 Release 资源名里的非 ASCII 字符）。
   已存在同名 Release 时会**覆盖**附件（`gh release upload --clobber`），可安全重跑。
 - **Artifact**（tag 与手动触发都有）：名为 `qingyue-release-apk`，保留 90 天。
@@ -379,9 +384,10 @@ surface、14dp 圆角、tonal 归零，外加一条和封面同款的细边框
 
 **已验证：**
 
-- **1.3.10**：`assembleDebug` / `assembleRelease`（R8 + 资源压缩）均构建通过；
-  `testDebugUnitTest` 5 个测试类全绿，含 `BookDocumentTest`
+- **1.3.11**：`assembleDebug` / `assembleRelease`（R8 + 资源压缩）均构建通过；
+  `testDebugUnitTest` 6 个测试类全绿（新增解析缓存往返 6 条），含 `BookDocumentTest`
   （4 条断言，专门锁住「章节号 ≠ 字符偏移」这个回归）
+- **1.3.10**：书架菜单换主题材质；解析结果磁盘缓存，二次打开免解析
 - **1.3.9**：拟态确认弹窗 + 删除本地文件（二次确认）
 - **1.3.8**：锁定条改为正文外的分栏，不再遮挡最后一行
 - **1.3.7**：修复 1.3.6 锁定时禁用翻页的回归
@@ -394,6 +400,8 @@ surface、14dp 圆角、tonal 归零，外加一条和封面同款的细边框
   9 种块级样式、4 种行内样式、样式区间不越界、链接 URL 被丢弃
 - **搜索匹配规则有单测覆盖**（`BookSearchTest`）：大小写、作者字段、空关键词
 - **选区换算有单测覆盖**（`ClipSelectionTest`）：区间越界、高亮与入库同源
+- **解析缓存往返有单测覆盖**（`DocumentDiskCacheTest`）：序列化无损（文本 / 偏移 / 章节 /
+  行内样式逐字段相等）、指纹不匹配作废、builder 版本升级作废、按上限淘汰最旧
 
 **未验证：**
 
@@ -409,7 +417,7 @@ surface、14dp 圆角、tonal 归零，外加一条和封面同款的细边框
 - **翻页模式的分页高度** —— 每页底部是否被完整利用，有无半截行或异常留白
 - **拟态阴影的实际观感** —— 尤其纯黑主题下对比度天然很弱
 - **自动滚屏 7x 的速度手感**（基准值 10dp/s 是按「中文 400 字/分钟」估的）
-- **1.3.6 – 1.3.10 新增**：锁定时翻页是否照常、手势返回是否真的被吞掉；长按解锁的手感；
+- **1.3.6 – 1.3.11 新增**：锁定时翻页是否照常、手势返回是否真的被吞掉；长按解锁的手感；
   锁定条是否还会挡住正文最后一行；进度条拖到 100% 后是否落在末页；
   移除目录后封面缓存目录是否清空（`adb shell run-as com.azhan.qingyue ls files/covers`）
 

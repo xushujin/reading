@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.util.LruCache
 import com.azhan.qingyue.data.local.BookEntity
 import com.azhan.qingyue.data.local.LibraryDao
@@ -24,8 +26,10 @@ import java.io.File
 /**
  * 书籍内容加载与进度保存。
  *
- * 解析结果只做「内存 LRU + 本地封面文件」两级缓存，不落整书磁盘缓存 ——
- * 一本普通书解析在百毫秒级，换来的是不占额外存储、不会因缓存失效而读出错版内容。
+ * 解析结果做「内存 LRU + 磁盘缓存」两级：内存缓存救的是翻回来看过的书，
+ * 磁盘缓存救的是冷启动 —— 大书（尤其 MOBI）解析要几秒，序列化下来二次打开
+ * 只剩一次反序列化。缓存有效性靠源文件指纹（size + lastModified）校验，
+ * 文件被替换、重新添加都会导致指纹变化而重新解析，不会读出错版内容。
  */
 class BookRepository(
     private val context: Context,
@@ -33,6 +37,7 @@ class BookRepository(
 ) {
 
     private val coverDir: File = File(context.filesDir, "covers").apply { mkdirs() }
+    private val diskCache = DocumentDiskCache(File(context.filesDir, "doccache"))
 
     private val documentCache = object : LruCache<Long, BookDocument>(MAX_CACHED_BOOKS) {}
 
@@ -42,6 +47,14 @@ class BookRepository(
 
     suspend fun loadDocument(book: BookEntity): BookDocument = withContext(Dispatchers.IO) {
         documentCache.get(book.id)?.let { return@withContext it }
+
+        val stamp = querySourceStamp(Uri.parse(book.documentUri))
+        if (stamp != null) {
+            diskCache.load(book.id, stamp)?.let { cached ->
+                documentCache.put(book.id, cached)
+                return@withContext cached
+            }
+        }
 
         val bytes = readBytes(Uri.parse(book.documentUri), book.fileName)
         val content = when (book.format.lowercase()) {
@@ -67,8 +80,40 @@ class BookRepository(
         )
 
         documentCache.put(book.id, document)
+        stamp?.let { diskCache.save(book.id, document, it) }
         document
     }
+
+    /**
+     * 查源文件指纹（size + lastModified）。一次单行 ContentResolver 查询，
+     * 比把几 MB 的原文读一遍便宜得多。
+     *
+     * `COLUMN_LAST_MODIFIED` 不是所有 provider 都认，失败就退回只查 SIZE；
+     * 两个都拿不到就不缓存 —— 没法验证新鲜度的缓存宁可用。
+     */
+    private fun querySourceStamp(uri: Uri): SourceStamp? = runCatching {
+        val resolver = context.contentResolver
+
+        fun read(projection: Array<String>): SourceStamp? =
+            resolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return null
+                val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                val modifiedIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                SourceStamp(
+                    size = if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) cursor.getLong(sizeIdx) else -1L,
+                    lastModified = if (modifiedIdx >= 0 && !cursor.isNull(modifiedIdx)) {
+                        cursor.getLong(modifiedIdx)
+                    } else {
+                        -1L
+                    },
+                )
+            }
+
+        // LAST_MODIFIED 不是所有 provider 都认，抛错就退回只查 SIZE
+        runCatching {
+            read(arrayOf(OpenableColumns.SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED))
+        }.getOrNull() ?: read(arrayOf(OpenableColumns.SIZE))
+    }.getOrNull()?.takeIf { it.size >= 0 || it.lastModified >= 0 }
 
     suspend fun saveProgress(bookId: Long, offset: Int, totalChars: Int) =
         withContext(Dispatchers.IO) {
@@ -110,6 +155,7 @@ class BookRepository(
 
     fun invalidate(bookId: Long) {
         documentCache.remove(bookId)
+        diskCache.remove(bookId)
         runCatching { File(coverDir, "cover_$bookId.jpg").delete() }
     }
 
@@ -129,6 +175,7 @@ class BookRepository(
     suspend fun removeCachedFiles(bookIds: Collection<Long>) = withContext(Dispatchers.IO) {
         bookIds.forEach { id ->
             documentCache.remove(id)
+            diskCache.remove(id)
             runCatching { File(coverDir, "cover_$id.jpg").delete() }
         }
     }

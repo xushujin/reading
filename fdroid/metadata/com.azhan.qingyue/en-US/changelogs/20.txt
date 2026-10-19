@@ -1,0 +1,9 @@
+Books now reopen almost instantly.
+
+* Parsed book content is cached on disk after the first open, so reopening a book
+  no longer re-reads the file and re-parses it — large files, especially MOBI
+  with its decompression step, drop from seconds to a fraction of a second.
+* Cache validity is checked against the source file (size and last modified
+  time); a replaced or re-added file is parsed again, never served stale.
+* The cache directory is capped (oldest entries evicted first) and cleaned up
+  when books are removed from the shelf.

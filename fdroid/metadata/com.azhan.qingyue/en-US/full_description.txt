@@ -15,6 +15,7 @@ QingYue is a lightweight, fully offline ebook reader. No account, no network, no
 * Five themes: parchment, daylight, eye-care green, night, pure black
 * Adjustable font size, line height, paragraph spacing and side margins
 * Chapter list for quick navigation
+* Parsed content is cached on disk (validated against the source file), so reopening a large book — especially MOBI — takes a fraction of a second instead of seconds
 
 <b>Library</b>
 * One folder becomes one shelf; subfolders are scanned automatically
