@@ -1,0 +1,6 @@
+Fixed: the lock chip no longer covers the last line of the page.
+
+* The unlock chip used to float over the bottom of the text, hiding the last line
+  exactly when you wanted to see where you were. It is now a separate bar below
+  the text, like the auto-scroll bar, so the page content never sits underneath it.
+* Unlocking still requires a long press.

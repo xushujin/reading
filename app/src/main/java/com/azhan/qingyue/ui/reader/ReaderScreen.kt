@@ -492,6 +492,19 @@ private fun ReadingView(
                     onStop = { autoScrolling = false },
                 )
             }
+
+            // 锁定条同样占位在正文之外，不浮在文字上 —— 1.3.7 的浮层版本
+            // 会挡住最后一行，长按解锁时反而看不到自己读到哪。
+            //
+            // 只做淡入淡出、不做高度动画：高度每帧变化会让翻页模式跟着重新分页
+            // （几百次文本测量），一次锁定要重排十几遍，肉眼可见地卡。
+            AnimatedVisibility(
+                visible = locked,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                LockBar(onUnlock = { locked = false })
+            }
         }
 
         // 选中文字后浮现的收藏按钮。放底部中央，避开选择手柄所在的选中行
@@ -559,45 +572,6 @@ private fun ReadingView(
         // Compose 里后组合的 enabled handler 优先，锁定时必须它说了算。
         BackHandler(enabled = locked) {
             // 故意什么都不做：这是「防误触」的核心，不是漏了实现。
-        }
-
-        // 锁上后的唯一出口。单指长按才解锁，轻碰不会误开。
-        if (locked) {
-            val haptics = LocalHapticFeedback.current
-            NeuSurface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 26.dp),
-                cornerRadius = 22.dp,
-                elevation = 8.dp,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onLongPress = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    locked = false
-                                },
-                            )
-                        }
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Lock,
-                        contentDescription = null,
-                        tint = palette.accent,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        text = "已锁定 · 长按解锁",
-                        fontSize = 12.sp,
-                        color = palette.textSecondary,
-                    )
-                }
-            }
         }
 
         if (showLimitDialog) {
@@ -1365,6 +1339,56 @@ private fun AutoScrollBar(
                 tint = palette.accent,
                 modifier = Modifier.size(18.dp),
             )
+        }
+    }
+}
+
+/**
+ * 锁定条：占位在正文区之外的一栏，不浮在文字上。
+ *
+ * 1.3.7 把它做成了底部浮层，结果正好盖住最后一行 —— 而「长按解锁」这个动作
+ * 恰恰发生在你想看清自己读到哪的时候。现在改成和 [AutoScrollBar] 一样的分栏，
+ * 锁定时正文区让出一行高度，字不会被压住。
+ *
+ * 只有长按才解锁：轻碰就解开的锁等于没锁。
+ */
+@Composable
+private fun LockBar(onUnlock: () -> Unit) {
+    val palette = LocalReaderPalette.current
+    val haptics = LocalHapticFeedback.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        NeuSurface(cornerRadius = 18.dp, elevation = 5.dp) {
+            Row(
+                modifier = Modifier
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onLongPress = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onUnlock()
+                            },
+                        )
+                    }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Lock,
+                    contentDescription = null,
+                    tint = palette.accent,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    text = "已锁定 · 长按解锁",
+                    fontSize = 12.sp,
+                    color = palette.textSecondary,
+                )
+            }
         }
     }
 }
