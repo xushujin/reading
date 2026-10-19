@@ -90,7 +90,7 @@ UpdateCheckMode: Tags
 - 零权限声明 ✅
 - 无专有依赖 ✅（全是 AndroidX / Kotlin）
 - 无签名材料时可从源码构建 ✅（已实测）
-- git tag：`v1.3.6`（发布后核验）
-- 每个 versionCode 的 changelog：`1.txt` … `15.txt` ✅
+- git tag：`v1.3.7`（发布后核验）
+- 每个 versionCode 的 changelog：`1.txt` … `16.txt` ✅
 
 **所有前置条件都已满足，只差提交 MR。**

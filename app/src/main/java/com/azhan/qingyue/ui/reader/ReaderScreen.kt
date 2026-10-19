@@ -293,8 +293,12 @@ private fun ReadingView(
     /**
      * 阅读锁定。
      *
-     * 锁上之后：点击不再切工具栏、不能长按选字、翻页模式不能左右滑、
-     * 系统返回（含手势返回）被吞掉 —— 只剩「长按锁图标」一个出口。
+     * 锁的是「会改变阅读位置或直接退出」的两类误操作：
+     * - 系统返回（含手势返回）被吞掉，不会一路 pop 回书架；
+     * - 单击不再切换工具栏，菜单不会莫名其妙冒出来/收起来。
+     *
+     * **翻页和滚动照常可用** —— 锁定的目的是防误触，不是把阅读本身也锁死。
+     * 长按选字同样禁用（选字会浮出收藏按钮，属于会打断阅读的误触）。
      * 用 rememberSaveable：转屏/分屏重建后锁不会莫名其妙解开。
      */
     var locked by rememberSaveable { mutableStateOf(false) }
@@ -452,7 +456,6 @@ private fun ReadingView(
                                 barsVisible = !barsVisible
                             }
                         },
-                        inputEnabled = !locked,
                         selectable = !locked,
                         selected = picked,
                         onSelect = handleSelect,
@@ -763,7 +766,6 @@ private fun PagedReader(
     onReachEnd: () -> Unit,
     onTouch: () -> Unit,
     onToggleBars: () -> Unit,
-    inputEnabled: Boolean,
     selectable: Boolean,
     selected: ClipSelection?,
     onSelect: (ClipSelection?) -> Unit,
@@ -885,8 +887,7 @@ private fun PagedReader(
 
         HorizontalPager(
             state = pagerState,
-            // 锁定时连左右滑动也关掉 —— 误触翻页虽然可逆，但会打乱阅读位置。
-            userScrollEnabled = inputEnabled,
+            // 锁定不影响翻页：左右滑动始终可用，锁的只是「退出」和「工具栏」。
             modifier = Modifier
                 .fillMaxSize()
                 .centerTapToToggleBars(onToggleBars)

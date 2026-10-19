@@ -1,0 +1,7 @@
+Fixed: page turning now works while the reading lock is on.
+
+* In 1.3.6 the reading lock also disabled horizontal paging, so a locked page
+  could not be turned at all. Paging and scrolling are now left untouched.
+* The lock still ignores the system back gesture (including gesture navigation)
+  and single taps that would show or hide the toolbar, and text selection stays
+  disabled. Long-press the lock chip at the bottom to unlock.

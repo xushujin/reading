@@ -9,7 +9,7 @@ QingYue is a lightweight, fully offline ebook reader. No account, no network, no
 <b>Reading</b>
 * Two reading modes: continuous scrolling and page turning
 * Reading position is stored as a character offset, so switching modes or changing font size never loses your place
-* Reading lock: freeze taps, text selection, page swipes and the back gesture; long-press the lock chip to unlock
+* Reading lock: while locked, taps no longer toggle the toolbar, text selection is disabled and the back gesture is ignored — page turning and scrolling keep working. Long-press the lock chip to unlock
 * The toolbar opens only when tapping the middle of the screen, so touches near the edges are ignored
 * Drag the progress bar to jump anywhere in the book
 * Five themes: parchment, daylight, eye-care green, night, pure black
