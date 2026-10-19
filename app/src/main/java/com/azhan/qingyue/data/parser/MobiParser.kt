@@ -102,22 +102,28 @@ object MobiParser {
         return out.toByteArray()
     }
 
-    private fun readPalmDocText(
+    internal fun readPalmDocText(
         records: List<ByteArray>,
         count: Int,
         recordSize: Int,
         textLength: Int,
     ): ByteArray {
+        val target = textLength.coerceAtLeast(0)
+
         // 输出缓冲**贯穿所有 record**，绝不能在 record 边界清空 ——
         // LZ77 的 dist 会引用前面 record 的字节，清空后回抄会越界。
-        val buffer = ArrayList<Byte>(textLength.coerceAtLeast(0))
+        //
+        // 必须是原生 ByteArray 而不是 ArrayList<Byte>：一本书解压出来是
+        // 千万级字节，装箱版本等于分配千万个小对象，25MB 的书能把 GC 拖到
+        // 像是永久卡死（这是 1.3.11 及以前大 MOBI「一直解析中」的真正原因）。
+        val out = ByteOut(minOf(target, 16 * 1024 * 1024).coerceAtLeast(64))
 
         for (i in 1..count) {
             val src = records.getOrNull(i) ?: break
-            if (buffer.size >= textLength) break
+            if (out.size >= target) break
 
             // 本 record 的产出配额：常规 recordSize，最后一块取剩余
-            val quota = minOf(recordSize, textLength - buffer.size)
+            val quota = minOf(recordSize, target - out.size)
             var produced = 0
             var p = 0
 
@@ -127,20 +133,20 @@ object MobiParser {
 
                 when {
                     c == 0x00 -> {
-                        buffer.add(0)
+                        out.add(0)
                         produced++
                     }
 
                     c <= 0x08 -> {
                         // 接下来 c 个字节原样输出
                         val take = minOf(c, quota - produced, src.size - p)
-                        for (k in 0 until take) buffer.add(src[p + k])
+                        out.append(src, p, take)
                         p += take
                         produced += take
                     }
 
                     c <= 0x7F -> {
-                        buffer.add(c.toByte())
+                        out.add(c)
                         produced++
                     }
 
@@ -150,18 +156,18 @@ object MobiParser {
                         val c2 = src[p].toInt() and 0xFF
                         p++
                         val dist = (((c shl 8) or c2) shr 3) and 0x07FF
-                        if (dist <= 0 || dist > buffer.size) break
+                        if (dist <= 0 || dist > out.size) break
                         val len = minOf((c2 and 0x07) + 3, quota - produced)
-                        repeat(len) { buffer.add(buffer[buffer.size - dist]) }
+                        out.copyFromSelf(out.size - dist, len)
                         produced += len
                     }
 
                     else -> {
                         // 0xC0-0xFF：空格 + (c ^ 0x80)
-                        buffer.add(0x20.toByte())
+                        out.add(0x20)
                         produced++
                         if (produced < quota) {
-                            buffer.add((c xor 0x80).toByte())
+                            out.add(c xor 0x80)
                             produced++
                         }
                     }
@@ -169,9 +175,46 @@ object MobiParser {
             }
         }
 
-        val out = ByteArray(buffer.size)
-        for (i in buffer.indices) out[i] = buffer[i]
-        return out
+        return out.toArray()
+    }
+
+    /**
+     * 可增长的原生字节数组。PalmDOC 解压专用 —— 每字节一次 add，
+     * 装箱版本会产生千万级小对象，这里必须零分配（扩容除外）。
+     */
+    private class ByteOut(initialCapacity: Int) {
+        private var data = ByteArray(initialCapacity.coerceAtLeast(64))
+        var size = 0
+            private set
+
+        fun add(value: Int) {
+            ensure(1)
+            data[size++] = value.toByte()
+        }
+
+        fun append(src: ByteArray, offset: Int, count: Int) {
+            if (count <= 0) return
+            ensure(count)
+            System.arraycopy(src, offset, data, size, count)
+            size += count
+        }
+
+        /** 从自身 [from] 处回抄 [count] 字节（LZ77 回引用）。arraycopy 自带重叠安全语义。 */
+        fun copyFromSelf(from: Int, count: Int) {
+            if (count <= 0) return
+            ensure(count)
+            System.arraycopy(data, from, data, size, count)
+            size += count
+        }
+
+        fun toArray(): ByteArray = data.copyOf(size)
+
+        private fun ensure(extra: Int) {
+            if (size + extra <= data.size) return
+            var cap = data.size
+            while (cap < size + extra) cap = cap shl 1
+            data = data.copyOf(cap)
+        }
     }
 
     /**

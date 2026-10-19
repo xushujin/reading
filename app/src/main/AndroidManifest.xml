@@ -5,6 +5,8 @@
       零运行时权限：书架目录通过 SAF(OpenDocumentTree) 授权并持久化，
       不需要 READ_EXTERNAL_STORAGE / MANAGE_EXTERNAL_STORAGE。
       屏幕常亮使用 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON，无需 WAKE_LOCK 权限。
+      largeHeap：解析大书（25MB 级 MOBI）时原文 + 解压结果 + 字符串会在堆上同时存在，
+      默认堆在不少机型上不够用，会直接 OOM。
     -->
 
     <application
@@ -14,6 +16,7 @@
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:largeHeap="true"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.QingYue">

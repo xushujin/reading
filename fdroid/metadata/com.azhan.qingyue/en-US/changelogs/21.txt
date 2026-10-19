@@ -1,0 +1,8 @@
+Fixed: large MOBI books (tens of MB) appeared stuck on "loading" forever.
+
+* The PalmDOC decompressor buffered output in a boxed Byte list — a 25 MB book
+  allocated tens of millions of tiny objects and the garbage collector made the
+  parse take effectively forever. It now uses a growable primitive byte buffer
+  with zero per-byte allocation, and decompression finishes in seconds.
+* The app now requests a larger heap, since parsing a big book keeps the source
+  bytes, the decompressed text and the extracted strings in memory at once.

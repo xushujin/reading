@@ -3,7 +3,7 @@ QingYue is a lightweight, fully offline ebook reader. No account, no network, no
 <b>Supported formats</b>
 * TXT — automatic encoding detection (UTF-8 / GB18030), chapter splitting by heading patterns
 * EPUB — chapters taken from the spine, cover extracted and cached
-* MOBI — Palm Database container with PalmDOC LZ77 decompression. DRM-protected files are not supported
+* MOBI — Palm Database container with PalmDOC LZ77 decompression. Large books parse in seconds. DRM-protected files are not supported
 * Markdown — really rendered: headings, lists, blockquotes, fenced code blocks, horizontal rules, and inline bold / italic / code / strikethrough / links
 
 <b>Reading</b>
