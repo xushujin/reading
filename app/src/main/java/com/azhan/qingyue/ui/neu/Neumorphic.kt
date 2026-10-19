@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -221,6 +222,8 @@ fun NeuButton(
     elevation: Dp = 6.dp,
     highlighted: Boolean = false,
     enabled: Boolean = true,
+    /** 覆盖底色。危险操作（删除）用暗红，避免和主题强调色混在一起。 */
+    containerColor: Color? = null,
     onClick: () -> Unit,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -229,7 +232,7 @@ fun NeuButton(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val sink = pressed
-    val background = if (highlighted) palette.accent else palette.surface
+    val background = containerColor ?: if (highlighted) palette.accent else palette.surface
 
     Row(
         modifier = modifier

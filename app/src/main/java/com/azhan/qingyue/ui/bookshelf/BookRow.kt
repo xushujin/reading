@@ -63,7 +63,8 @@ internal fun BookRow(
     book: BookEntity,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onRemove: (() -> Unit)? = null,
+    /** 参数为 true 表示用户点的是「删除本地文件」，弹窗里的开关默认打开。 */
+    onRequestRemove: ((deleteFile: Boolean) -> Unit)? = null,
 ) {
     val palette = LocalReaderPalette.current
     var menuOpen by remember { mutableStateOf(false) }
@@ -119,7 +120,7 @@ internal fun BookRow(
                 )
             }
             // 移除入口只在书架页提供；收藏页传 null，菜单就不出现。
-            if (onRemove != null) {
+            if (onRequestRemove != null) {
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(
@@ -137,7 +138,15 @@ internal fun BookRow(
                             text = { Text("从书架移除") },
                             onClick = {
                                 menuOpen = false
-                                onRemove()
+                                onRequestRemove(false)
+                            },
+                        )
+                        // 单独列一条：只写「从书架移除」的话，用户根本找不到删文件的入口
+                        DropdownMenuItem(
+                            text = { Text("删除本地文件…") },
+                            onClick = {
+                                menuOpen = false
+                                onRequestRemove(true)
                             },
                         )
                     }

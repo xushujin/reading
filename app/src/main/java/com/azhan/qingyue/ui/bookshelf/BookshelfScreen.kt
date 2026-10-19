@@ -2,6 +2,7 @@ package com.azhan.qingyue.ui.bookshelf
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
@@ -37,7 +38,6 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -46,7 +46,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -78,9 +77,11 @@ import com.azhan.qingyue.R
 import com.azhan.qingyue.data.local.BookEntity
 import com.azhan.qingyue.data.local.ShelfWithBooks
 import com.azhan.qingyue.ui.neu.NeuButton
+import com.azhan.qingyue.ui.neu.NeuDialog
 import com.azhan.qingyue.ui.neu.NeuIconButton
 import com.azhan.qingyue.ui.neu.NeuProgress
 import com.azhan.qingyue.ui.neu.NeuSurface
+import com.azhan.qingyue.ui.neu.NeuSwitch
 import com.azhan.qingyue.ui.theme.LocalReaderPalette
 import com.azhan.qingyue.util.formatCharCount
 import kotlinx.coroutines.Dispatchers
@@ -112,9 +113,26 @@ fun BookshelfScreen(
     val snackbarHost = remember { SnackbarHostState() }
 
     // 删除一律先确认：书可以重新扫描回来，但阅读进度、封面缓存和「已读」状态
-    // 一旦清掉就回不来了。这两个状态只保存「待删除的对象」，确认后才真正执行。
+    // 一旦清掉就回不来了。删本地文件还要再确认一次 —— 那是不可恢复的操作。
     var pendingBookRemoval by remember { mutableStateOf<BookEntity?>(null) }
     var pendingShelfRemoval by remember { mutableStateOf<ShelfWithBooks?>(null) }
+    var deleteFileChecked by remember { mutableStateOf(false) }
+    var pendingFileDeletion by remember { mutableStateOf<BookEntity?>(null) }
+
+    val pendingPermission by viewModel.pendingPermission.collectAsState()
+
+    // 老书架只持久化过读权限，删文件会失败。这里让用户重新选一次同一个目录来补授权，
+    // 选完直接把待删的那本书接着删掉，不用用户再走一遍菜单。
+    val grantFolder = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        val pending = pendingPermission
+        if (uri != null && pending != null) {
+            viewModel.retryDeleteWithFile(pending.book, uri)
+        } else {
+            viewModel.clearPendingPermission()
+        }
+    }
 
     val pickFolder = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
@@ -169,7 +187,10 @@ fun BookshelfScreen(
                                     book = book,
                                     onClick = { onOpenBook(book.id) },
                                     onToggleFavorite = { viewModel.toggleFavorite(book) },
-                                    onRemove = { pendingBookRemoval = book },
+                                    onRequestRemove = { deleteFile ->
+                                        deleteFileChecked = deleteFile
+                                        pendingBookRemoval = book
+                                    },
                                 )
                             }
                         }
@@ -202,7 +223,10 @@ fun BookshelfScreen(
                                         book = book,
                                         onClick = { onOpenBook(book.id) },
                                         onToggleFavorite = { viewModel.toggleFavorite(book) },
-                                        onRemove = { pendingBookRemoval = book },
+                                        onRequestRemove = { deleteFile ->
+                                        deleteFileChecked = deleteFile
+                                        pendingBookRemoval = book
+                                    },
                                     )
                                 }
                             }
@@ -217,54 +241,94 @@ fun BookshelfScreen(
         }
     }
 
-    // 移除单本书的确认。文案里明确「不动原文件」—— 否则用户会以为删的是手机里的书。
+    // 第一步：移除确认。开关决定是否连本地文件一起删；打开时还要再确认一次。
     pendingBookRemoval?.let { book ->
-        AlertDialog(
-            onDismissRequest = { pendingBookRemoval = null },
-            title = { Text("从书架移除？") },
-            text = {
-                Text(
-                    "「${book.title}」会从书架消失，阅读进度和封面缓存一并清除。\n" +
-                        "手机里的原文件不会被删除。",
-                )
+        NeuDialog(
+            title = if (deleteFileChecked) "删除本地文件？" else "从书架移除？",
+            message = if (deleteFileChecked) {
+                "「${book.title}」会从书架消失，并删除手机里的原文件；" +
+                    "阅读进度和封面缓存一并清除。\n下一步还会再确认一次。"
+            } else {
+                "「${book.title}」会从书架消失，阅读进度和封面缓存一并清除。" +
+                    "手机里的原文件不会被删除。"
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingBookRemoval = null
-                        viewModel.removeBook(book)
-                    },
-                ) { Text("移除") }
+            confirmLabel = if (deleteFileChecked) "下一步" else "移除",
+            onConfirm = {
+                pendingBookRemoval = null
+                if (deleteFileChecked) {
+                    pendingFileDeletion = book
+                } else {
+                    viewModel.removeBook(book, deleteFile = false)
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { pendingBookRemoval = null }) { Text("取消") }
+            onDismiss = { pendingBookRemoval = null },
+            extra = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "同时删除本地文件",
+                            fontSize = 13.sp,
+                            color = palette.textPrimary,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = "文件将从手机存储中永久删除",
+                            fontSize = 11.sp,
+                            color = palette.textSecondary,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    NeuSwitch(
+                        checked = deleteFileChecked,
+                        onCheckedChange = { deleteFileChecked = it },
+                    )
+                }
             },
         )
     }
 
-    // 移除整个目录的确认。书多的时候影响面比单本大得多，必须单独提示数量。
+    // 第二步：删文件的最终确认。不可恢复的操作单独一屏，避免手滑。
+    pendingFileDeletion?.let { book ->
+        NeuDialog(
+            title = "确认永久删除？",
+            message = "「${book.title}」将从手机存储中永久删除，无法恢复。\n" +
+                "如果这个目录是旧版本添加的，系统可能会先要求你重新授权一次。",
+            confirmLabel = "永久删除",
+            destructive = true,
+            onConfirm = {
+                pendingFileDeletion = null
+                viewModel.removeBook(book, deleteFile = true)
+            },
+            onDismiss = { pendingFileDeletion = null },
+        )
+    }
+
+    // 移除整个目录的确认。目录只清记录与缓存，不会删整夹文件 ——
+    // 一次删掉几十本书的风险太大，单本删除才提供「连文件一起删」。
     pendingShelfRemoval?.let { shelf ->
-        AlertDialog(
-            onDismissRequest = { pendingShelfRemoval = null },
-            title = { Text("移除目录？") },
-            text = {
-                Text(
-                    "「${shelf.shelf.name}」下的 ${shelf.books.size} 本书会从书架消失，" +
-                        "阅读进度和封面缓存一并清除。\n" +
-                        "手机里的原文件不会被删除，重新添加该目录即可再扫回来（进度不保留）。",
-                )
+        NeuDialog(
+            title = "移除目录？",
+            message = "「${shelf.shelf.name}」下的 ${shelf.books.size} 本书会从书架消失，" +
+                "阅读进度和封面缓存一并清除。\n" +
+                "手机里的原文件不会被删除，重新添加该目录即可再扫回来（进度不保留）。",
+            confirmLabel = "移除",
+            onConfirm = {
+                pendingShelfRemoval = null
+                viewModel.removeShelf(shelf.shelf.id, shelf.shelf.name)
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingShelfRemoval = null
-                        viewModel.removeShelf(shelf.shelf.id, shelf.shelf.name)
-                    },
-                ) { Text("移除") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingShelfRemoval = null }) { Text("取消") }
-            },
+            onDismiss = { pendingShelfRemoval = null },
+        )
+    }
+
+    // 旧书架只授过读权限，删文件前引导补一次写授权。
+    pendingPermission?.let { pending ->
+        NeuDialog(
+            title = "需要目录的写入权限",
+            message = "这个目录是在旧版本里添加的，当时只授权了读取。" +
+                "重新选择一次该目录即可获得写入权限，然后会继续删除「${pending.book.title}」。",
+            confirmLabel = "去授权",
+            onConfirm = { grantFolder.launch(Uri.parse(pending.treeUri)) },
+            onDismiss = { viewModel.clearPendingPermission() },
         )
     }
 }

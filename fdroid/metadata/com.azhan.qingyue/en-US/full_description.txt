@@ -20,7 +20,7 @@ QingYue is a lightweight, fully offline ebook reader. No account, no network, no
 * One folder becomes one shelf; subfolders are scanned automatically
 * Search across titles, file names and authors
 * Save text passages, and mark whole books as favourites
-* Remove a single book or a whole folder from the shelf — covers and cached data are cleaned up, files on the device are never touched
+* Remove a book from the shelf, optionally deleting the file from your device after a second confirmation. Removing a folder only clears shelf records and cached covers
 
 <b>Hands-free</b>
 * Auto-scroll (0.3x–7x) or auto page-turn

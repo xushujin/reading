@@ -40,13 +40,11 @@ import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -91,6 +89,7 @@ import com.azhan.qingyue.data.parser.Paragraph
 import com.azhan.qingyue.data.prefs.ReadMode
 import com.azhan.qingyue.data.prefs.ReaderSettings
 import com.azhan.qingyue.ui.neu.NeuButton
+import com.azhan.qingyue.ui.neu.NeuDialog
 import com.azhan.qingyue.ui.neu.NeuIconButton
 import com.azhan.qingyue.ui.neu.NeuSlider
 import com.azhan.qingyue.ui.neu.NeuSurface
@@ -575,31 +574,21 @@ private fun ReadingView(
         }
 
         if (showLimitDialog) {
-            AlertDialog(
-                onDismissRequest = { showLimitDialog = false },
-                title = {
-                    Text("已连续亮屏 ${settings.maxContinuousMinutes} 分钟")
+            NeuDialog(
+                title = "已连续亮屏 ${settings.maxContinuousMinutes} 分钟",
+                message = "自动滚屏已暂停，屏幕常亮已解除 —— " +
+                    "这样即使看着看着睡着，也不会亮一整夜。",
+                confirmLabel = "继续阅读",
+                dismissLabel = "退出阅读",
+                // 点遮罩/返回只关弹窗；「退出阅读」才真的走人。
+                onConfirm = {
+                    showLimitDialog = false
+                    guard.resetSession()
                 },
-                text = {
-                    Text(
-                        "自动滚屏已暂停，屏幕常亮已解除 —— 这样即使看着看着睡着，也不会亮一整夜。",
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showLimitDialog = false
-                            guard.resetSession()
-                        },
-                    ) { Text("继续阅读") }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showLimitDialog = false
-                            onBack()
-                        },
-                    ) { Text("退出阅读") }
+                onDismiss = { showLimitDialog = false },
+                dismissAction = {
+                    showLimitDialog = false
+                    onBack()
                 },
             )
         }

@@ -1,0 +1,9 @@
+Neumorphic confirmation dialogs, and deleting a book file from the device.
+
+* Confirmation dialogs now use the same neumorphic panels and buttons as the rest
+  of the app, instead of the platform dialog style.
+* The book menu has a separate "Delete local file" action. Deleting a file always
+  asks for a second confirmation; plain removal from the shelf still leaves the
+  file untouched.
+* Books added by older versions were granted read access only, so deleting a file
+  may ask you to pick the folder once to grant write access.
