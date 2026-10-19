@@ -28,6 +28,10 @@ interface LibraryDao {
     @Query("SELECT * FROM books WHERE id = :id")
     suspend fun findBook(id: Long): BookEntity?
 
+    /** 某个书架下的全部书籍 —— 移除书架前要先按 id 清掉封面缓存文件。 */
+    @Query("SELECT * FROM books WHERE shelfId = :shelfId")
+    suspend fun booksOfShelf(shelfId: Long): List<BookEntity>
+
     @Query("SELECT * FROM books WHERE documentUri = :uri LIMIT 1")
     suspend fun findBookByUri(uri: String): BookEntity?
 
@@ -87,6 +91,15 @@ interface LibraryDao {
 
     @Query("DELETE FROM shelves WHERE id = :id")
     suspend fun deleteShelf(id: Long)
+
+    /**
+     * 从书架移除一本书。
+     *
+     * 只删这条记录，**不动**手机里的原始文件 —— 阅读器没有写用户文件系统的授权，
+     * 也不该替用户做这个决定。`clips` 同样刻意保留（见 [ClipEntity] 的注释）。
+     */
+    @Query("DELETE FROM books WHERE id = :id")
+    suspend fun deleteBook(id: Long)
 
     // ---------- 文字片段收藏 ----------
 

@@ -4,7 +4,7 @@
 只做一件事：把你手机里本地的 TXT / EPUB / MOBI / Markdown 读得舒服一点。
 
 - 包名 `com.azhan.qingyue` ｜ minSdk 26（Android 8.0）｜ targetSdk 35
-- 30 个 Kotlin 文件、约 5800 行
+- 33 个主源码文件 + 4 个测试文件，约 7000 行
 - release APK 约 **1.3 MB**
 
 ---
@@ -30,6 +30,9 @@
 - **摘录**：阅读时长按一段文字后**拖动选择**范围（选中部分会高亮），松手浮现「收藏选中 N 字」按钮，点击即存
 - **我的收藏页**（首页顶栏星标入口）：用 Tab 分开管理「文字片段」与「电子书」两种收藏。
   点摘录是**就地展开看全文**（摘录本身就是完整片段，不必跳回原书）
+- **移除**：书籍行右侧「⋮」可单本移除，分组头菜单可移除整个目录。移除前都会二次确认，
+  并清掉阅读进度、封面缓存与内存中的解析结果；**手机里的原文件不会动**
+  （阅读器只有读权限，也不该替用户删文件）
 - 重复添加同一目录不会建第二条记录，直接重扫
 
 ### 2. 阅读
@@ -42,9 +45,18 @@
 **阅读位置用「正文字符偏移」记录，不是页码** —— 切换阅读方式、改字号行距、换设备，
 位置都不会丢。
 
+**阅读锁**（顶栏锁图标）：锁上之后点击不再切工具栏、不能长按选字、翻页模式不能左右滑，
+系统返回（含手势返回）也被吞掉。唯一的出口是底部「已锁定 · 长按解锁」——必须长按，
+轻碰不会解开。适合单手举着手机、或者给小孩/别人看的时候用。
+
 其他：
 
-- 目录跳转：EPUB 按 spine 章节；TXT 按章节标题正则识别
+- **工具栏只在屏幕中间 40% 的区域响应点击**。整屏可点是误触的主要来源：
+  拇指搭在边缘、滑动收尾多出来的一次点击，都会把菜单抖出来
+- **进度条可拖动**：拖到任意位置松手即跳转，按段落起点对齐；拖动过程只更新
+  百分比，松手才真正定位（否则翻页模式会跟着手指反复重排）
+- 目录跳转：EPUB 按 spine 章节；TXT 按章节标题正则识别。章节表存的是段落号，
+  跳转前统一换算成字符偏移
 - 进度保存做了防抖（停顿 600ms 才落库），快速滑动不会疯狂写库
 
 ### 3. 排版与主题
@@ -87,43 +99,50 @@ reading/
 ├── gradle/libs.versions.toml           # 版本集中管理
 ├── gradlew / gradlew.bat / gradle/wrapper/
 ├── .github/workflows/build-apk.yml     # tag 触发构建 + 挂 Release
-└── app/src/main/
-    ├── AndroidManifest.xml
-    ├── res/                             # 主题 + 自适应图标（纯矢量，无二进制图）
-    └── java/com/azhan/qingyue/
-        ├── QingYueApp.kt                # 手写依赖容器（唯一的"注入"处）
-        ├── MainActivity.kt
-        ├── data/
-        │   ├── local/                   # Room：shelves / books 两张表
-        │   │   ├── Entities.kt
-        │   │   ├── LibraryDao.kt
-        │   │   └── QingYueDatabase.kt
-        │   ├── parser/
-        │   │   ├── BookModels.kt        # BookDocument：段落流 + 章节索引 + 字符偏移
-        │   │   ├── TextUtils.kt         # 编码探测 / HTML 转纯文本 / 章节标题规则
-        │   │   ├── TxtParser.kt
-        │   │   ├── EpubParser.kt        # 零依赖：ZipInputStream + XmlPullParser
-        │   │   ├── MobiParser.kt        # 零依赖：PDB 容器 + PalmDOC / HUFF-CDIC 解压
-        │   │   └── MarkdownParser.kt    # 块级 + 行内样式 → RichBlock
-        │   ├── prefs/SettingsStore.kt   # DataStore：主题 / 排版 / 常亮策略
-        │   └── repo/
-        │       ├── LibraryRepository.kt # SAF 扫描 + 书架排序
-        │       └── BookRepository.kt    # 加载 / 进度 / 封面
-        ├── ui/
-        │   ├── QingYueRoot.kt           # 导航（3 个页面，字符串路由）
-        │   ├── theme/                   # 五套阅读配色 + 亮暗外壳配色
-        │   ├── neu/Neumorphic.kt        # 拟态设计系统（NeuSurface / NeuButton / 凹槽）
-        │   ├── bookshelf/               # 书架页（分组 / 折叠）
-        │   ├── reader/
-        │   │   ├── ReaderScreen.kt      # 滚动（ScrolledReader）/ 翻页（PagedReader）
-        │   │   ├── BookPaginator.kt     # 按行装箱预分页
-        │   │   ├── ReaderSettingsSheet.kt
-        │   │   ├── ChapterSheet.kt
-        │   │   └── ReaderViewModel.kt
-        │   └── settings/SettingsScreen.kt
-        └── util/
-            ├── ScreenAwake.kt           # 防熄屏双闸门守卫
-            └── Formatters.kt
+├── fdroid/metadata/                    # F-Droid 上架材料（非运行所需）
+├── app/schemas/                        # Room 导出的建表快照，迁移校验的依据
+└── app/src/
+    ├── main/
+    │   ├── AndroidManifest.xml
+    │   ├── res/                         # 主题 + 自适应图标（纯矢量，无二进制图）
+    │   └── java/com/azhan/qingyue/
+    │       ├── QingYueApp.kt            # 手写依赖容器（唯一的"注入"处）
+    │       ├── MainActivity.kt
+    │       ├── data/
+    │       │   ├── local/               # Room：shelves / books / clips 三张表
+    │       │   │   ├── Entities.kt
+    │       │   │   ├── LibraryDao.kt
+    │       │   │   ├── BookSearch.kt     # 搜索匹配规则（纯函数，可直接测）
+    │       │   │   └── QingYueDatabase.kt
+    │       │   ├── parser/
+    │       │   │   ├── BookModels.kt    # BookDocument：段落流 + 章节索引 + 字符偏移
+    │       │   │   ├── TextUtils.kt     # 编码探测 / HTML 转纯文本 / 章节标题规则
+    │       │   │   ├── TxtParser.kt
+    │       │   │   ├── EpubParser.kt    # 零依赖：ZipInputStream + XmlPullParser
+    │       │   │   ├── MobiParser.kt    # 零依赖：PDB 容器 + PalmDOC / HUFF-CDIC 解压
+    │       │   │   └── MarkdownParser.kt # 块级 + 行内样式 → RichBlock
+    │       │   ├── prefs/SettingsStore.kt # DataStore：主题 / 排版 / 常亮策略
+    │       │   └── repo/
+    │       │       ├── LibraryRepository.kt # SAF 扫描 + 书架排序 + 移除
+    │       │       └── BookRepository.kt    # 加载 / 进度 / 封面 / 缓存清理
+    │       ├── ui/
+    │       │   ├── QingYueRoot.kt       # 导航（4 个路由，字符串路由）
+    │       │   ├── theme/               # 五套阅读配色 + 亮暗外壳配色
+    │       │   ├── neu/Neumorphic.kt    # 拟态设计系统（NeuSurface / NeuButton / 凹槽 / 滑块）
+    │       │   ├── bookshelf/           # 书架页（分组 / 折叠 / 移除确认）
+    │       │   ├── favorites/           # 我的收藏（摘录 / 电子书两个 Tab）
+    │       │   ├── reader/
+    │       │   │   ├── ReaderScreen.kt  # 滚动 / 翻页 / 摘录 / 自动滚屏 / 阅读锁
+    │       │   │   ├── BookPaginator.kt # 按行装箱预分页
+    │       │   │   ├── ReaderSettingsSheet.kt
+    │       │   │   ├── ChapterSheet.kt
+    │       │   │   └── ReaderViewModel.kt
+    │       │   └── settings/SettingsScreen.kt
+    │       └── util/
+    │           ├── ScreenAwake.kt       # 防熄屏双闸门守卫
+    │           └── Formatters.kt
+    └── test/java/com/azhan/qingyue/     # 纯 JVM 单测：解析 / 搜索 / 选区
+```
 ```
 
 ---
@@ -138,30 +157,31 @@ reading/
 ### 命令行
 
 ```bash
-cd /Users/wisdom/workbuddy-ai/reading
+cd /path/to/reading
 
-export JAVA_HOME="$HOME/.workbuddy-ai/toolchain/jdk-17.0.20.1+1/Contents/Home"
-export ANDROID_HOME="$HOME/.workbuddy-ai/toolchain/android-sdk"
+export JAVA_HOME="/path/to/jdk-17"
+export ANDROID_HOME="/path/to/Android/sdk"
 export PATH="$JAVA_HOME/bin:$PATH"
 
 ./gradlew :app:assembleRelease   # 1.3 MB，装机用
 ./gradlew :app:assembleDebug     # 16.8 MB，含完整符号，便于看崩溃堆栈
 ```
 
-> 上面两个路径是本机工具链位置。其他人用 Android Studio 自带的 JDK/SDK，
-> 或在 `local.properties` 里写 `sdk.dir=/path/to/Android/sdk` 即可。
+> 用 Android Studio 自带的 JDK/SDK 最省事，或者在 `local.properties` 里写
+> `sdk.dir=/path/to/Android/sdk`。**JDK 用 17** —— AGP 8.7.3 的下限是 17，
+> 更高的 JDK 本项目没有验证过，别在这上面浪费时间。
 
 产物：
 
 | 包 | 路径 | 体积 |
 |---|---|---|
-| release（推荐） | `app/build/outputs/apk/release/QingYue-1.3.5-release.apk` | **1.3 MB** |
-| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.3.5-debug.apk` | 16.7 MB |
+| release（推荐） | `app/build/outputs/apk/release/QingYue-1.3.6-release.apk` | **1.3 MB** |
+| debug（便于看崩溃堆栈） | `app/build/outputs/apk/debug/QingYue-1.3.6-debug.apk` | 16.7 MB |
 
 装到手机：
 
 ```bash
-adb install -r app/build/outputs/apk/release/QingYue-1.3.5-release.apk
+adb install -r app/build/outputs/apk/release/QingYue-1.3.6-release.apk
 ```
 
 也可以直接把 APK 传到手机上点击安装（需要允许「安装未知来源应用」）。
@@ -184,15 +204,14 @@ release 包用 `keystore/qingyue-release.jks` 签名：
 仓库自带 `.github/workflows/build-apk.yml`：**打 tag 才触发**（也可在 Actions 页手动触发）。
 
 ```bash
-git tag v1.3.5          # 需以 v 开头，建议与 versionName 一致
-git push origin v1.3.5  # 推上去即触发编译
-git push origin v1.3.1  # 推上去即触发编译
+git tag v1.3.6          # 需以 v 开头，建议与 versionName 一致
+git push origin v1.3.6  # 推上去即触发编译
 ```
 
 产物有两个去处：
 
 - **GitHub Release**（仅 tag 构建）：自动创建/更新对应 tag 的 Release，并把 APK
-  作为附件挂上去，文件名形如 `QingYue-v1.3.5.apk`
+  作为附件挂上去，文件名形如 `QingYue-v1.3.6.apk`
   （**附件名必须纯 ASCII**：GitHub 会删掉 Release 资源名里的非 ASCII 字符）。
   已存在同名 Release 时会**覆盖**附件（`gh release upload --clobber`），可安全重跑。
 - **Artifact**（tag 与手动触发都有）：名为 `qingyue-release-apk`，保留 90 天。
@@ -292,6 +311,31 @@ BOM → 严格模式 UTF-8（`CodingErrorAction.REPORT`）→ GB18030 兜底。
 外壳（书架 / 设置）只分亮 / 暗，阅读页才用完整阅读主题 ——
 否则护眼绿、羊皮纸会铺满整个 App，书架页会显得脏。
 
+### 9. 阅读锁锁的是「输入」，不是「按钮」
+
+锁上之后没有去禁用某一个按钮，而是让整条输入链路失效：点击不切工具栏、
+不挂载长按选字的手势、翻页模式 `userScrollEnabled = false`、
+`BackHandler(enabled = locked)` 直接吞掉系统返回（手势返回也走这条）。
+这样将来新增手势时，只要它在锁定分支里，就不会出现「锁了但还能从某个角落退出去」。
+
+解锁刻意做成**长按**而不是点击：锁定的目的就是防误触，如果轻碰就能解开，
+那它只是多了一步，没有真正拦住。
+
+### 10. 工具栏只认屏幕中间 40%
+
+`centerTapToToggleBars` 用 `detectTapGestures` 拿到点击的 x 坐标，只在中段回调。
+之前整屏可点（列表和每个段落都挂 `clickable`），阅读时拇指搭在边缘、
+滑动收尾多出来的一次点击都会把工具栏抖出来 —— 这类误触没法靠「小心一点」解决，
+只能缩小命中区域。段落上的 `clickable` 一并删掉，避免和容器各触发一次。
+
+### 11. 章节表存段落号，跳转要的是字符偏移
+
+`chapterStartIndices` 是「第几个段落」，而阅读位置、进度条、`seekTarget`
+全用字符偏移。1.3.5 及以前直接把段落号当偏移传下去 —— 段落号远小于偏移量，
+`paragraphIndexForOffset` 会二分到书首附近的段落，于是**每次目录跳转都像没生效**，
+而且不报错。现在转换收在 `BookDocument.offsetOfChapter()` 一处，
+调用方拿到的永远是偏移量。
+
 ---
 
 ## 五、已知限制
@@ -313,16 +357,24 @@ BOM → 严格模式 UTF-8（`CodingErrorAction.REPORT`）→ GB18030 兜底。
 
 **已验证：**
 
-- `assembleDebug` / `assembleRelease` 均构建通过、零警告，签名经 `apksigner` 校验
+- **1.3.6**：`assembleDebug` / `assembleRelease`（R8 + 资源压缩）均构建通过；
+  `testDebugUnitTest` 5 个测试类全绿，含新增的 `BookDocumentTest`
+  （4 条断言，专门锁住「章节号 ≠ 字符偏移」这个回归）
+- **1.3.5**：`assembleDebug` / `assembleRelease` 均构建通过、零警告，签名经 `apksigner` 校验
 - **MOBI 解析用真实文件跑通**（`MobiParserTest`，Project Gutenberg 的 527 KB 样本）：
   解出书名 `Pride and Prejudice`、作者 `Jane Austen`、63 个章节、835,642 字节正文，
   与头部声明的 `textLength` 完全一致，无空字节污染
 - **Markdown 各块级 / 行内样式有单测覆盖**（`MarkdownParserTest`）：断言章节切分、
   9 种块级样式、4 种行内样式、样式区间不越界、链接 URL 被丢弃
+- **搜索匹配规则有单测覆盖**（`BookSearchTest`）：大小写、作者字段、空关键词
+- **选区换算有单测覆盖**（`ClipSelectionTest`）：区间越界、高亮与入库同源
 
 **未验证：**
 
 - **整机运行** —— 尚未在真机或模拟器上做过功能与视觉复核
+- **1.3.6 的 release 包未签名** —— 构建机上没有 keystore，`assembleRelease` 出的是
+  未签名包（`apksigner verify` 报 `Missing META-INF/MANIFEST.MF`）。
+  要装机请用 `assembleDebug`，或在配好 `keystore.properties` / CI secrets 后重新打 release
 - MOBI 的 HUFF/CDIC 压缩路径
 - EPUB 对排版混乱的第三方书源的兼容性
 
@@ -331,6 +383,9 @@ BOM → 严格模式 UTF-8（`CodingErrorAction.REPORT`）→ GB18030 兜底。
 - **翻页模式的分页高度** —— 每页底部是否被完整利用，有无半截行或异常留白
 - **拟态阴影的实际观感** —— 尤其纯黑主题下对比度天然很弱
 - **自动滚屏 7x 的速度手感**（基准值 10dp/s 是按「中文 400 字/分钟」估的）
+- **1.3.6 新增**：锁定时手势返回是否真的被吞掉；长按解锁的手感；
+  进度条拖到 100% 后是否落在末页；移除目录后封面缓存目录是否清空
+  （`adb shell run-as com.azhan.qingyue ls files/covers`）
 
 ---
 

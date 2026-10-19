@@ -104,6 +104,17 @@ class BookDocument(
     fun offsetOfParagraph(index: Int): Int =
         paragraphs.getOrNull(index)?.startOffset ?: totalChars
 
+    /**
+     * 章节起始处的**字符偏移**。
+     *
+     * [chapterStartIndices] 存的是「第几个段落」，而阅读位置、进度条、跳转请求
+     * 用的全是字符偏移 —— 这两套坐标一旦混用，目录跳转会静默跳到书首附近
+     * （段落号被当成偏移量，数值小得多），编译期不会报错。
+     * 所以转换只在这里做，调用方拿到的永远是偏移量。
+     */
+    fun offsetOfChapter(index: Int): Int? =
+        chapterStartIndices.getOrNull(index)?.let { offsetOfParagraph(it) }
+
     fun progressOfOffset(offset: Int): Float =
         if (totalChars <= 0) 0f else (offset.toFloat() / totalChars).coerceIn(0f, 1f)
 

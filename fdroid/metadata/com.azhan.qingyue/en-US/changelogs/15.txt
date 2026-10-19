@@ -1,0 +1,11 @@
+Reading lock, draggable progress bar, chapter navigation fix, and book removal.
+
+* New reading lock: taps, text selection, page swipes and the system back gesture
+  are ignored while locked. Long-press the lock chip at the bottom to unlock.
+* The toolbar now toggles only when tapping the middle of the screen, so touches
+  near the edges no longer pop the menus open by accident.
+* Chapter list navigation now jumps to the selected chapter; previously it landed
+  near the beginning of the book.
+* The progress bar can be dragged to jump anywhere in the book.
+* Books and whole folders can be removed from the shelf, cleaning up their covers
+  and cached data. Files on the device are never deleted.

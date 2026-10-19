@@ -104,8 +104,24 @@ class BookshelfViewModel(
 
     fun removeShelf(shelfId: Long, shelfName: String) {
         viewModelScope.launch {
+            // 先清封面文件：书籍记录会被外键 CASCADE 删掉，但文件不会自己消失。
+            val bookIds = library.booksOfShelf(shelfId).map { it.id }
+            books.removeCachedFiles(bookIds)
             library.removeShelf(shelfId)
             _message.value = "已移除「$shelfName」"
+        }
+    }
+
+    /**
+     * 从书架移除一本书。
+     *
+     * 只删记录与封面缓存，**不删手机里的原文件** —— 用户可能只是不想在这台设备上
+     * 看到它，或者想换个目录重新添加。真要删原文件得由用户在系统文件管理器里做。
+     */
+    fun removeBook(book: BookEntity) {
+        viewModelScope.launch {
+            books.removeBook(book)
+            _message.value = "已从书架移除「${book.title}」"
         }
     }
 

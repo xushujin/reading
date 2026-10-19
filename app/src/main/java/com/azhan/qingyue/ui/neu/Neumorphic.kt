@@ -428,6 +428,7 @@ fun NeuSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     modifier: Modifier = Modifier,
     steps: Int = 0,
+    onValueChangeFinished: (() -> Unit)? = null,
 ) {
     val palette = LocalReaderPalette.current
     Slider(
@@ -436,6 +437,7 @@ fun NeuSlider(
         valueRange = valueRange,
         steps = steps,
         modifier = modifier,
+        onValueChangeFinished = onValueChangeFinished,
         colors = SliderDefaults.colors(
             thumbColor = palette.accent,
             activeTrackColor = palette.accent,

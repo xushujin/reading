@@ -152,6 +152,11 @@ class LibraryRepository(
         }
     }
 
+    /** 书架下的全部书籍。移除书架前用来清理封面缓存 —— CASCADE 只删表，不删文件。 */
+    suspend fun booksOfShelf(shelfId: Long): List<BookEntity> = withContext(Dispatchers.IO) {
+        dao.booksOfShelf(shelfId)
+    }
+
     /**
      * 扫描目录下的电子书并入库。已存在的书（按 documentUri 判定）跳过，
      * 从而保留阅读进度不被覆盖。

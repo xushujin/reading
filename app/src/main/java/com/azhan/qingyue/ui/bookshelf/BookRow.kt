@@ -17,15 +17,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,8 +63,11 @@ internal fun BookRow(
     book: BookEntity,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onRemove: (() -> Unit)? = null,
 ) {
     val palette = LocalReaderPalette.current
+    var menuOpen by remember { mutableStateOf(false) }
+
     NeuSurface(
         modifier = Modifier
             .fillMaxWidth()
@@ -109,6 +117,31 @@ internal fun BookRow(
                     tint = if (book.isFavorite) palette.accent else palette.textSecondary,
                     modifier = Modifier.size(20.dp),
                 )
+            }
+            // 移除入口只在书架页提供；收藏页传 null，菜单就不出现。
+            if (onRemove != null) {
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "更多操作",
+                            tint = palette.textSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("从书架移除") },
+                            onClick = {
+                                menuOpen = false
+                                onRemove()
+                            },
+                        )
+                    }
+                }
             }
         }
     }

@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -45,6 +46,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -109,6 +111,11 @@ fun BookshelfScreen(
     val searchResults by viewModel.searchResults.collectAsState()
     val snackbarHost = remember { SnackbarHostState() }
 
+    // 删除一律先确认：书可以重新扫描回来，但阅读进度、封面缓存和「已读」状态
+    // 一旦清掉就回不来了。这两个状态只保存「待删除的对象」，确认后才真正执行。
+    var pendingBookRemoval by remember { mutableStateOf<BookEntity?>(null) }
+    var pendingShelfRemoval by remember { mutableStateOf<ShelfWithBooks?>(null) }
+
     val pickFolder = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri -> uri?.let(viewModel::addShelf) }
@@ -162,6 +169,7 @@ fun BookshelfScreen(
                                     book = book,
                                     onClick = { onOpenBook(book.id) },
                                     onToggleFavorite = { viewModel.toggleFavorite(book) },
+                                    onRemove = { pendingBookRemoval = book },
                                 )
                             }
                         }
@@ -185,9 +193,7 @@ fun BookshelfScreen(
                                     expanded = expanded,
                                     onToggle = { viewModel.toggleShelf(shelf.shelf.id) },
                                     onRescan = { viewModel.rescan(shelf.shelf.id) },
-                                    onRemove = {
-                                        viewModel.removeShelf(shelf.shelf.id, shelf.shelf.name)
-                                    },
+                                    onRemove = { pendingShelfRemoval = shelf },
                                 )
                             }
                             if (expanded) {
@@ -196,6 +202,7 @@ fun BookshelfScreen(
                                         book = book,
                                         onClick = { onOpenBook(book.id) },
                                         onToggleFavorite = { viewModel.toggleFavorite(book) },
+                                        onRemove = { pendingBookRemoval = book },
                                     )
                                 }
                             }
@@ -208,6 +215,57 @@ fun BookshelfScreen(
         if (busy) {
             BusyOverlay()
         }
+    }
+
+    // 移除单本书的确认。文案里明确「不动原文件」—— 否则用户会以为删的是手机里的书。
+    pendingBookRemoval?.let { book ->
+        AlertDialog(
+            onDismissRequest = { pendingBookRemoval = null },
+            title = { Text("从书架移除？") },
+            text = {
+                Text(
+                    "「${book.title}」会从书架消失，阅读进度和封面缓存一并清除。\n" +
+                        "手机里的原文件不会被删除。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingBookRemoval = null
+                        viewModel.removeBook(book)
+                    },
+                ) { Text("移除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingBookRemoval = null }) { Text("取消") }
+            },
+        )
+    }
+
+    // 移除整个目录的确认。书多的时候影响面比单本大得多，必须单独提示数量。
+    pendingShelfRemoval?.let { shelf ->
+        AlertDialog(
+            onDismissRequest = { pendingShelfRemoval = null },
+            title = { Text("移除目录？") },
+            text = {
+                Text(
+                    "「${shelf.shelf.name}」下的 ${shelf.books.size} 本书会从书架消失，" +
+                        "阅读进度和封面缓存一并清除。\n" +
+                        "手机里的原文件不会被删除，重新添加该目录即可再扫回来（进度不保留）。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingShelfRemoval = null
+                        viewModel.removeShelf(shelf.shelf.id, shelf.shelf.name)
+                    },
+                ) { Text("移除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingShelfRemoval = null }) { Text("取消") }
+            },
+        )
     }
 }
 

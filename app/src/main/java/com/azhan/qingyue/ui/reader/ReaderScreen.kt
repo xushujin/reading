@@ -10,6 +10,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Toc
 import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -49,11 +51,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -61,13 +65,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -87,7 +92,7 @@ import com.azhan.qingyue.data.prefs.ReadMode
 import com.azhan.qingyue.data.prefs.ReaderSettings
 import com.azhan.qingyue.ui.neu.NeuButton
 import com.azhan.qingyue.ui.neu.NeuIconButton
-import com.azhan.qingyue.ui.neu.NeuProgress
+import com.azhan.qingyue.ui.neu.NeuSlider
 import com.azhan.qingyue.ui.neu.NeuSurface
 import com.azhan.qingyue.ui.theme.LocalReaderPalette
 import com.azhan.qingyue.ui.theme.ReaderPalette
@@ -108,6 +113,31 @@ private const val AUTO_SCROLL_BASE_DP_PER_SECOND = 10f
 
 /** 手指触碰后暂停自动滚屏的时长，避免误触就停不下来。 */
 private const val TOUCH_PAUSE_MILLIS = 2_000L
+
+/**
+ * 点击切工具栏的有效横向区间（占屏宽的比例）。
+ *
+ * 之所以不整屏可点：阅读时拇指常搭在屏幕边缘，滑动收尾也容易多一次点击，
+ * 整屏响应会把工具栏频繁抖出来。中间 40% 是「刻意去点」才容易命中的区域，
+ * 两侧留给后续可能加的翻页手势，目前点上去不做任何事。
+ */
+private const val TAP_ZONE_START = 0.30f
+private const val TAP_ZONE_END = 0.70f
+
+/** 只有落在中间区域才回调 —— 其余位置的点击直接丢弃。 */
+private fun Modifier.centerTapToToggleBars(onToggle: () -> Unit): Modifier = pointerInput(Unit) {
+    detectTapGestures(
+        // 显式给一个空的长按回调：长按是「选字」的起手式，
+        // 不声明的话长按结束仍会被判成一次 tap，松手就把工具栏抖出来。
+        onLongPress = {},
+        onTap = { offset ->
+            val width = size.width
+            if (width > 0 && offset.x >= width * TAP_ZONE_START && offset.x <= width * TAP_ZONE_END) {
+                onToggle()
+            }
+        },
+    )
+}
 
 @Composable
 fun ReaderScreen(
@@ -260,6 +290,15 @@ private fun ReadingView(
     var showChapters by remember { mutableStateOf(false) }
     var showLimitDialog by remember { mutableStateOf(false) }
 
+    /**
+     * 阅读锁定。
+     *
+     * 锁上之后：点击不再切工具栏、不能长按选字、翻页模式不能左右滑、
+     * 系统返回（含手势返回）被吞掉 —— 只剩「长按锁图标」一个出口。
+     * 用 rememberSaveable：转屏/分屏重建后锁不会莫名其妙解开。
+     */
+    var locked by rememberSaveable { mutableStateOf(false) }
+
     // 阅读位置由内容区上报，用正文字符偏移而不是页码/段落号 ——
     // 这样滚动模式和翻页模式的坐标系是同一个，切换模式、改字号都不会丢位置。
     var currentOffset by remember { mutableIntStateOf(book?.lastOffset ?: 0) }
@@ -305,6 +344,29 @@ private fun ReadingView(
         if (autoScrolling) barsVisible = false
     }
 
+    // 上锁时立即收起工具栏、清掉选区 —— 否则「锁住了但菜单还开着」没有意义。
+    LaunchedEffect(locked) {
+        if (locked) {
+            barsVisible = false
+            picked = null
+            showSettingsPanel = false
+            showChapters = false
+        }
+    }
+
+    // 进度条拖动结束后跳转。先夹到正文范围内，再落到段落起点 ——
+    // 段落中间的位置没有渲染意义，落到段首才能稳定复现。
+    val handleSeek: (Float) -> Unit = { fraction ->
+        val target = (fraction.coerceIn(0f, 1f) * document.totalChars).toInt()
+        val paragraphStart =
+            document.offsetOfParagraph(document.paragraphIndexForOffset(target))
+        // 立刻把进度条与章节标签推到目标位置。否则要等正文区下一次上报
+        // （滚动模式有 600ms 防抖），滑块会先弹回原位再跳过去。
+        currentOffset = paragraphStart
+        seekTarget = paragraphStart
+        onSaveProgress(paragraphStart)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -330,6 +392,7 @@ private fun ReadingView(
                     subtitle = chapterTitle,
                     onBack = onBack,
                     onOpenChapters = { showChapters = true },
+                    onLock = { locked = true },
                 )
             }
 
@@ -358,9 +421,12 @@ private fun ReadingView(
                             touchTick++
                         },
                         onToggleBars = {
-                            picked = null
-                            barsVisible = !barsVisible
+                            if (!locked) {
+                                picked = null
+                                barsVisible = !barsVisible
+                            }
                         },
+                        selectable = !locked,
                         selected = picked,
                         onSelect = handleSelect,
                     )
@@ -381,9 +447,13 @@ private fun ReadingView(
                         onReachEnd = { autoScrolling = false },
                         onTouch = { guard.onUserInteraction() },
                         onToggleBars = {
-                            picked = null
-                            barsVisible = !barsVisible
+                            if (!locked) {
+                                picked = null
+                                barsVisible = !barsVisible
+                            }
                         },
+                        inputEnabled = !locked,
+                        selectable = !locked,
                         selected = picked,
                         onSelect = handleSelect,
                     )
@@ -400,6 +470,7 @@ private fun ReadingView(
                     chapterIndex = chapterIndex,
                     chapterCount = document.chapterTitles.size,
                     autoScrolling = autoScrolling,
+                    onSeek = handleSeek,
                     onToggleAutoScroll = { autoScrolling = !autoScrolling },
                     onOpenSettings = { showSettingsPanel = true },
                 )
@@ -463,7 +534,9 @@ private fun ReadingView(
                 currentChapter = chapterIndex,
                 onSelect = { index ->
                     showChapters = false
-                    document.chapterStartIndices.getOrNull(index)?.let { seekTarget = it }
+                    // chapterStartIndices 存的是段落号，seekTarget 要的是字符偏移。
+                    // 以前直接把段落号当偏移传下去，目录跳转会静默跳到书首附近。
+                    document.offsetOfChapter(index)?.let { seekTarget = it }
                 },
                 onDismiss = { showChapters = false },
             )
@@ -476,6 +549,51 @@ private fun ReadingView(
             when {
                 showSettingsPanel -> showSettingsPanel = false
                 showChapters -> showChapters = false
+            }
+        }
+
+        // 锁定期间吞掉返回（含手势返回）。放在面板那个 BackHandler 之后 ——
+        // Compose 里后组合的 enabled handler 优先，锁定时必须它说了算。
+        BackHandler(enabled = locked) {
+            // 故意什么都不做：这是「防误触」的核心，不是漏了实现。
+        }
+
+        // 锁上后的唯一出口。单指长按才解锁，轻碰不会误开。
+        if (locked) {
+            val haptics = LocalHapticFeedback.current
+            NeuSurface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 26.dp),
+                cornerRadius = 22.dp,
+                elevation = 8.dp,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    locked = false
+                                },
+                            )
+                        }
+                        .padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Lock,
+                        contentDescription = null,
+                        tint = palette.accent,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        text = "已锁定 · 长按解锁",
+                        fontSize = 12.sp,
+                        color = palette.textSecondary,
+                    )
+                }
             }
         }
 
@@ -529,13 +647,13 @@ private fun ScrolledReader(
     onReachEnd: () -> Unit,
     onTouch: () -> Unit,
     onToggleBars: () -> Unit,
+    selectable: Boolean,
     selected: ClipSelection?,
     onSelect: (ClipSelection?) -> Unit,
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
     var restored by remember { mutableStateOf(false) }
-    var lastSeek by remember { mutableStateOf<Int?>(null) }
 
     val baseSpeedPx = remember(density) {
         with(density) { AUTO_SCROLL_BASE_DP_PER_SECOND.dp.toPx() }
@@ -551,8 +669,8 @@ private fun ScrolledReader(
 
     LaunchedEffect(seekTarget) {
         val target = seekTarget ?: return@LaunchedEffect
-        if (target == lastSeek) return@LaunchedEffect
-        lastSeek = target
+        // 不做「和上次相同就跳过」的优化：跳到同一章也要能重新对齐，
+        // 而且 seekTarget 每次都先被置回 null，这里不会重复触发。
         listState.scrollToItem(document.paragraphIndexForOffset(target))
         onSeekHandled()
     }
@@ -603,11 +721,9 @@ private fun ScrolledReader(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onToggleBars,
-            )
+            // 只有屏幕中间那一竖条会切工具栏。整屏可点是误触的主要来源 ——
+            // 拇指搭在屏幕边缘、滑动结束的余指都会把菜单抖出来。
+            .centerTapToToggleBars(onToggleBars)
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
@@ -625,7 +741,7 @@ private fun ScrolledReader(
             ParagraphItem(
                 paragraph = paragraph,
                 settings = settings,
-                onToggleBars = onToggleBars,
+                selectable = selectable,
                 selected = selected,
                 onSelect = onSelect,
             )
@@ -647,6 +763,8 @@ private fun PagedReader(
     onReachEnd: () -> Unit,
     onTouch: () -> Unit,
     onToggleBars: () -> Unit,
+    inputEnabled: Boolean,
+    selectable: Boolean,
     selected: ClipSelection?,
     onSelect: (ClipSelection?) -> Unit,
 ) {
@@ -694,7 +812,6 @@ private fun PagedReader(
 
         val pagerState = rememberPagerState { loaded.size }
         var restored by remember { mutableStateOf(false) }
-        var lastSeek by remember { mutableStateOf<Int?>(null) }
         val offsetState = rememberUpdatedState(currentOffset)
 
         // 首次进入用存档位置；之后每次重新分页（改字号 / 行距 / 边距 / 主题）
@@ -709,9 +826,9 @@ private fun PagedReader(
 
         LaunchedEffect(seekTarget) {
             val target = seekTarget ?: return@LaunchedEffect
-            if (target == lastSeek) return@LaunchedEffect
-            lastSeek = target
-            pagerState.scrollToPage(loaded.pageIndexForOffset(target))
+            pagerState.scrollToPage(
+                loaded.pageIndexForOffset(target).coerceIn(0, loaded.lastIndex),
+            )
             onSeekHandled()
         }
 
@@ -768,13 +885,11 @@ private fun PagedReader(
 
         HorizontalPager(
             state = pagerState,
+            // 锁定时连左右滑动也关掉 —— 误触翻页虽然可逆，但会打乱阅读位置。
+            userScrollEnabled = inputEnabled,
             modifier = Modifier
                 .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onToggleBars,
-                )
+                .centerTapToToggleBars(onToggleBars)
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
@@ -787,7 +902,7 @@ private fun PagedReader(
             PageContent(
                 page = loaded[index],
                 settings = settings,
-                onToggleBars = onToggleBars,
+                selectable = selectable,
                 selected = selected,
                 onSelect = onSelect,
             )
@@ -810,7 +925,7 @@ private fun PagedReader(
 private fun SelectableSlice(
     slice: PageSlice,
     settings: ReaderSettings,
-    onToggleBars: () -> Unit,
+    selectable: Boolean,
     selected: ClipSelection?,
     onSelect: (ClipSelection?) -> Unit,
 ) {
@@ -833,40 +948,47 @@ private fun SelectableSlice(
                 start = readerIndentStart(settings, block),
                 top = readerSpacingBefore(settings, block),
             )
-            // 长按后拖动 = 选择。必须排在 clickable 前面 ——
-            // 它消费掉长按序列后 clickable 就拿不到 up，不会再误触发切工具栏。
-            // 同一个起始 offset 在改变字号/工具栏显隐后的切片文本可能完全不同。
+            // 长按后拖动 = 选择。锁定时整段手势都不挂载 —— 否则「锁定」只是
+            // 关掉了点击，长按照样能选字、弹出收藏按钮。
+            // 同一个起始 offset 在改变字号/工具栏显隐后的切片文本可能完全不同，
             // 手势协程必须随文本重启，否则 onDragEnd 会拿旧切片的文字保存。
-            .pointerInput(slice.startOffset, slice.text) {
-                detectDragGesturesAfterLongPress(
-                    onDragStart = { position ->
-                        onSelect(null)
-                        val index = layout?.getOffsetForPosition(position) ?: return@detectDragGesturesAfterLongPress
-                        anchor = index
-                        cursor = index
-                    },
-                    onDrag = { change, _ ->
-                        cursor = layout?.getOffsetForPosition(change.position)
-                        onSelect(selectionRange(anchor, cursor)
-                            ?.let { selectedClip(slice.text, slice.startOffset, it) })
-                        change.consume()
-                    },
-                    onDragEnd = {
-                        onSelect(selectionRange(anchor, cursor)
-                            ?.let { selectedClip(slice.text, slice.startOffset, it) })
-                    },
-                    onDragCancel = {
-                        anchor = null
-                        cursor = null
-                        onSelect(null)
-                    },
-                )
-            }
-            // 短按切工具栏。Text 不吞手势，能正常收到
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onToggleBars,
+            .then(
+                if (selectable) {
+                    Modifier.pointerInput(slice.startOffset, slice.text) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { position ->
+                                onSelect(null)
+                                val index = layout?.getOffsetForPosition(position)
+                                    ?: return@detectDragGesturesAfterLongPress
+                                anchor = index
+                                cursor = index
+                            },
+                            onDrag = { change, _ ->
+                                cursor = layout?.getOffsetForPosition(change.position)
+                                onSelect(
+                                    selectionRange(anchor, cursor)?.let {
+                                        selectedClip(slice.text, slice.startOffset, it)
+                                    },
+                                )
+                                change.consume()
+                            },
+                            onDragEnd = {
+                                onSelect(
+                                    selectionRange(anchor, cursor)?.let {
+                                        selectedClip(slice.text, slice.startOffset, it)
+                                    },
+                                )
+                            },
+                            onDragCancel = {
+                                anchor = null
+                                cursor = null
+                                onSelect(null)
+                            },
+                        )
+                    }
+                } else {
+                    Modifier
+                },
             ),
         style = readerTextStyle(
             settings = settings,
@@ -934,7 +1056,7 @@ private fun highlight(
 private fun PageContent(
     page: BookPage,
     settings: ReaderSettings,
-    onToggleBars: () -> Unit,
+    selectable: Boolean,
     selected: ClipSelection?,
     onSelect: (ClipSelection?) -> Unit,
 ) {
@@ -965,7 +1087,7 @@ private fun PageContent(
             SelectableSlice(
                 slice = slice,
                 settings = settings,
-                onToggleBars = onToggleBars,
+                selectable = selectable,
                 selected = selected,
                 onSelect = onSelect,
             )
@@ -978,8 +1100,8 @@ private fun PageContent(
 private fun ParagraphItem(
     paragraph: Paragraph,
     settings: ReaderSettings,
+    selectable: Boolean,
     onSelect: (ClipSelection?) -> Unit,
-    onToggleBars: () -> Unit,
     selected: ClipSelection?,
 ) {
     val palette = LocalReaderPalette.current
@@ -1024,37 +1146,44 @@ private fun ParagraphItem(
                 end = settings.horizontalPaddingDp.dp,
                 top = readerSpacingBefore(settings, block),
             )
-            // 长按后拖动 = 选择，排在 clickable 前面；正文内容变化时重启协程。
-            .pointerInput(paragraph.startOffset, paragraph.text) {
-                detectDragGesturesAfterLongPress(
-                    onDragStart = { position ->
-                        onSelect(null)
-                        val index = layout?.getOffsetForPosition(position) ?: return@detectDragGesturesAfterLongPress
-                        anchor = index
-                        cursor = index
-                    },
-                    onDrag = { change, _ ->
-                        cursor = layout?.getOffsetForPosition(change.position)
-                        onSelect(selectionRange(anchor, cursor)
-                            ?.let { selectedClip(paragraph.text, paragraph.startOffset, it) })
-                        change.consume()
-                    },
-                    onDragEnd = {
-                        onSelect(selectionRange(anchor, cursor)
-                            ?.let { selectedClip(paragraph.text, paragraph.startOffset, it) })
-                    },
-                    onDragCancel = {
-                        anchor = null
-                        cursor = null
-                        onSelect(null)
-                    },
-                )
-            }
-            // 短按切工具栏
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onToggleBars,
+            // 长按后拖动 = 选择。锁定时不挂这个手势。
+            .then(
+                if (selectable) {
+                    Modifier.pointerInput(paragraph.startOffset, paragraph.text) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { position ->
+                                onSelect(null)
+                                val index = layout?.getOffsetForPosition(position)
+                                    ?: return@detectDragGesturesAfterLongPress
+                                anchor = index
+                                cursor = index
+                            },
+                            onDrag = { change, _ ->
+                                cursor = layout?.getOffsetForPosition(change.position)
+                                onSelect(
+                                    selectionRange(anchor, cursor)?.let {
+                                        selectedClip(paragraph.text, paragraph.startOffset, it)
+                                    },
+                                )
+                                change.consume()
+                            },
+                            onDragEnd = {
+                                onSelect(
+                                    selectionRange(anchor, cursor)?.let {
+                                        selectedClip(paragraph.text, paragraph.startOffset, it)
+                                    },
+                                )
+                            },
+                            onDragCancel = {
+                                anchor = null
+                                cursor = null
+                                onSelect(null)
+                            },
+                        )
+                    }
+                } else {
+                    Modifier
+                },
             ),
         style = readerTextStyle(
             settings = settings,
@@ -1071,6 +1200,7 @@ private fun ReaderTopBar(
     subtitle: String,
     onBack: () -> Unit,
     onOpenChapters: () -> Unit,
+    onLock: () -> Unit,
 ) {
     val palette = LocalReaderPalette.current
     Row(
@@ -1115,6 +1245,14 @@ private fun ReaderTopBar(
                 modifier = Modifier.size(18.dp),
             )
         }
+        NeuIconButton(onClick = onLock, size = 40.dp) {
+            Icon(
+                imageVector = Icons.Rounded.Lock,
+                contentDescription = "锁定阅读",
+                tint = palette.textPrimary,
+                modifier = Modifier.size(17.dp),
+            )
+        }
     }
 }
 
@@ -1124,32 +1262,54 @@ private fun ReaderBottomBar(
     chapterIndex: Int,
     chapterCount: Int,
     autoScrolling: Boolean,
+    onSeek: (Float) -> Unit,
     onToggleAutoScroll: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val palette = LocalReaderPalette.current
+
+    // 拖动过程中只更新本地显示值，松手才真正跳转 ——
+    // 翻页模式的每次定位都要重新走一遍分页查找，跟着手指逐像素触发会明显发涩。
+    var dragging by remember { mutableStateOf(false) }
+    var dragValue by remember { mutableFloatStateOf(progress) }
+    LaunchedEffect(progress) {
+        if (!dragging) dragValue = progress
+    }
+    val shown = if (dragging) dragValue else progress
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = formatPercent(progress),
+                text = formatPercent(shown),
                 fontSize = 11.sp,
                 color = palette.textSecondary,
+                modifier = Modifier.width(38.dp),
             )
-            Spacer(Modifier.width(10.dp))
-            NeuProgress(progress = progress, modifier = Modifier.weight(1f))
-            Spacer(Modifier.width(10.dp))
+            NeuSlider(
+                value = shown,
+                onValueChange = {
+                    dragging = true
+                    dragValue = it
+                },
+                onValueChangeFinished = {
+                    dragging = false
+                    onSeek(dragValue)
+                },
+                valueRange = 0f..1f,
+                modifier = Modifier.weight(1f),
+            )
             Text(
                 text = "${chapterIndex + 1}/$chapterCount",
                 fontSize = 11.sp,
                 color = palette.textSecondary,
+                modifier = Modifier.width(44.dp),
+                textAlign = TextAlign.End,
             )
         }
-
-        Spacer(Modifier.height(4.dp))
 
         // 目录入口只留顶栏那一个，这里不再重复。
         Row(

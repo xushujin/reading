@@ -113,6 +113,26 @@ class BookRepository(
         runCatching { File(coverDir, "cover_$bookId.jpg").delete() }
     }
 
+    /**
+     * 从书架移除一本书：清掉内存缓存与封面文件，再删数据库记录。
+     *
+     * 顺序不能反 —— 先删记录的话就拿不到 coverPath 之外的信息，
+     * 而且中途失败会留下一份「查不到书、封面文件还在」的孤儿文件。
+     * 原始电子书文件不在这里处理（SAF 只授了读权限，也不该由阅读器删）。
+     */
+    suspend fun removeBook(book: BookEntity) = withContext(Dispatchers.IO) {
+        invalidate(book.id)
+        dao.deleteBook(book.id)
+    }
+
+    /** 批量清理缓存文件（移除整个书架时用，记录由外键 CASCADE 负责删）。 */
+    suspend fun removeCachedFiles(bookIds: Collection<Long>) = withContext(Dispatchers.IO) {
+        bookIds.forEach { id ->
+            documentCache.remove(id)
+            runCatching { File(coverDir, "cover_$id.jpg").delete() }
+        }
+    }
+
     // ---------------------------------------------------------------- io
 
     private fun readBytes(uri: Uri, fileName: String): ByteArray {
