@@ -1,0 +1,6 @@
+Toast messages are now plain bold text, with no panel at all.
+
+* The background, border and shadow are gone — only the message is drawn, in
+  semibold, with a soft halo in the page colour so it stays readable on top of
+  body text.
+* Still dismisses itself after 1.8 seconds.
