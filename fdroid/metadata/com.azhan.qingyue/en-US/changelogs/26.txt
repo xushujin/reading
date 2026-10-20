@@ -1,0 +1,7 @@
+Toast messages are now translucent and disappear much faster.
+
+* Background is the theme colour at low opacity, so the text underneath stays
+  visible while the message is on screen; the panel no longer has a shadow, just
+  a hairline border.
+* Messages dismiss themselves after 1.8 seconds instead of the platform default
+  of 4 seconds.
