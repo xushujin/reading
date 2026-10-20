@@ -198,7 +198,11 @@ fun BookshelfScreen(
                         if (recent.isNotEmpty()) {
                             item(key = "recent-label") { GroupLabel("最近阅读") }
                             item(key = "recent-row") {
-                                RecentRow(books = recent, onOpenBook = onOpenBook)
+                                RecentRow(
+                                    books = recent,
+                                    onOpenBook = onOpenBook,
+                                    onToggleFavorite = { viewModel.toggleFavorite(it) },
+                                )
                             }
                         }
 
@@ -569,33 +573,62 @@ private fun GroupHeader(
 }
 
 @Composable
-private fun RecentRow(books: List<BookEntity>, onOpenBook: (Long) -> Unit) {
+private fun RecentRow(
+    books: List<BookEntity>,
+    onOpenBook: (Long) -> Unit,
+    onToggleFavorite: (BookEntity) -> Unit,
+) {
     val palette = LocalReaderPalette.current
     LazyRow(
         contentPadding = PaddingValues(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         items(books, key = { "recent-${it.id}" }) { book ->
-            NeuSurface(
-                modifier = Modifier.width(100.dp),
-                cornerRadius = 14.dp,
-                elevation = 6.dp,
-                onClick = { onOpenBook(book.id) },
-            ) {
-                Column(
-                    modifier = Modifier.padding(10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+            Box(modifier = Modifier.width(100.dp)) {
+                NeuSurface(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 14.dp,
+                    elevation = 6.dp,
+                    onClick = { onOpenBook(book.id) },
                 ) {
-                    BookCover(book = book, modifier = Modifier.size(54.dp, 72.dp))
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = book.title,
-                        fontSize = 11.sp,
-                        color = palette.textPrimary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 15.sp,
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        BookCover(book = book, modifier = Modifier.size(54.dp, 72.dp))
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = book.title,
+                            fontSize = 11.sp,
+                            color = palette.textPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 15.sp,
+                        )
+                    }
+                }
+                // 星标自己消费点击，不会连带触发「打开这本书」
+                IconButton(
+                    onClick = { onToggleFavorite(book) },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 2.dp, end = 2.dp)
+                        .size(30.dp),
+                ) {
+                    Icon(
+                        imageVector = if (book.isFavorite) {
+                            Icons.Rounded.Star
+                        } else {
+                            Icons.Rounded.StarBorder
+                        },
+                        contentDescription = if (book.isFavorite) "取消收藏" else "加入收藏",
+                        tint = if (book.isFavorite) {
+                            palette.accent
+                        } else {
+                            palette.textSecondary.copy(alpha = 0.55f)
+                        },
+                        modifier = Modifier.size(16.dp),
                     )
                 }
             }

@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -108,6 +109,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** 自动滚屏基准速度（dp/秒）。1x 大致对应「舒适的连续阅读速度」。 */
@@ -126,12 +128,21 @@ private const val TOUCH_PAUSE_MILLIS = 2_000L
 private const val TAP_ZONE_START = 0.30f
 private const val TAP_ZONE_END = 0.70f
 
-/** 只有落在中间区域才回调 —— 其余位置的点击直接丢弃。 */
-private fun Modifier.centerTapToToggleBars(onToggle: () -> Unit): Modifier = pointerInput(Unit) {
+/**
+ * 只有落在中间区域才回调 —— 其余位置的点击直接丢弃。
+ *
+ * [unlockLongPress] 非空时（= 已锁定），屏幕任意位置长按即解锁。锁定状态下
+ * 不再显示「已锁定 · 长按解锁」的按钮 —— 那个浮层会盖住最后一行，而
+ * 解锁恰恰发生在你想看清读到哪的时候。长按本身也不需要按钮提示。
+ */
+private fun Modifier.centerTapToToggleBars(
+    onToggle: () -> Unit,
+    unlockLongPress: (() -> Unit)? = null,
+): Modifier = pointerInput(unlockLongPress != null) {
     detectTapGestures(
-        // 显式给一个空的长按回调：长按是「选字」的起手式，
+        // 显式给一个长按回调：长按是「选字」的起手式，
         // 不声明的话长按结束仍会被判成一次 tap，松手就把工具栏抖出来。
-        onLongPress = {},
+        onLongPress = { unlockLongPress?.invoke() },
         onTap = { offset ->
             val width = size.width
             if (width > 0 && offset.x >= width * TAP_ZONE_START && offset.x <= width * TAP_ZONE_END) {
@@ -270,6 +281,8 @@ private fun ReadingView(
     val palette = LocalReaderPalette.current
     val guard = rememberScreenAwakeGuard()
     val snackbarHost = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
 
     LaunchedEffect(message) {
         val text = message ?: return@LaunchedEffect
@@ -417,6 +430,15 @@ private fun ReadingView(
                 selectable = !locked,
                 selected = picked,
                 onSelect = handleSelect,
+                onUnlock = if (locked) {
+                    {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        locked = false
+                        scope.launch { snackbarHost.showSnackbar("已解锁") }
+                    }
+                } else {
+                    null
+                },
                 // 滚动模式的底栏是浮层，留出底部空白让最后一行能滚上来
                 bottomInset = if (barsVisible) 112.dp else 0.dp,
             )
@@ -446,6 +468,15 @@ private fun ReadingView(
                 selectable = !locked,
                 selected = picked,
                 onSelect = handleSelect,
+                onUnlock = if (locked) {
+                    {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        locked = false
+                        scope.launch { snackbarHost.showSnackbar("已解锁") }
+                    }
+                } else {
+                    null
+                },
             )
         }
 
@@ -463,7 +494,13 @@ private fun ReadingView(
                     subtitle = chapterTitle,
                     onBack = onBack,
                     onOpenChapters = { showChapters = true },
-                    onLock = { locked = true },
+                    onLock = {
+                        locked = true
+                        // 锁定后没有任何常驻控件，提示只显示几秒，不压正文
+                        scope.launch {
+                            snackbarHost.showSnackbar("已锁定 · 长按屏幕任意位置解锁")
+                        }
+                    },
                 )
             }
         }
@@ -481,38 +518,25 @@ private fun ReadingView(
                     chapterCount = document.chapterTitles.size,
                     autoScrolling = autoScrolling,
                     onSeek = handleSeek,
-                    onToggleAutoScroll = { autoScrolling = !autoScrolling },
+                    onToggleAutoScroll = {
+                        autoScrolling = !autoScrolling
+                        if (autoScrolling) {
+                            // 开始自动滚动后立即收起工具栏：底栏是浮层，留着会压住最后一行。
+                            // 停止入口改成「点屏幕中间唤起工具栏 → 点暂停」，并用一条
+                            // 短提示说明，避免用户找不到怎么停。
+                            barsVisible = false
+                            scope.launch {
+                                snackbarHost.showSnackbar("自动滚动中 · 轻点屏幕中间可停止")
+                            }
+                        }
+                    },
                     onOpenSettings = { showSettingsPanel = true },
                 )
             }
         }
 
-        // 自动滚屏时的「停」入口，同样是浮层。
-        AnimatedVisibility(
-            visible = autoScrolling && !barsVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            Box(modifier = Modifier.background(palette.background)) {
-                AutoScrollBar(
-                    label = if (settings.readMode == ReadMode.PAGE) "自动翻页中" else "自动滚屏中",
-                    speed = settings.autoScrollSpeed,
-                    onStop = { autoScrolling = false },
-                )
-            }
-        }
-
-        // 锁定条。同样是浮层 —— 单一高度方案下它只能盖在文字上，
-        // 但解锁是长按，几乎不会在阅读时误触。
-        AnimatedVisibility(
-            visible = locked,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            LockBar(onUnlock = { locked = false })
-        }
+        // 锁定状态不再显示任何常驻控件：长按屏幕任意位置解锁（见 centerTapToToggleBars）。
+        // 锁定瞬间用一条 Snackbar 提示，几秒后自己消失，不会长期压住正文。
 
         // 选中文字后浮现的收藏按钮。放底部中央，避开选择手柄所在的选中行
         if (pickedText != null && pickedText.isNotBlank()) {
@@ -625,6 +649,8 @@ private fun ScrolledReader(
     selectable: Boolean,
     selected: ClipSelection?,
     onSelect: (ClipSelection?) -> Unit,
+    /** 非空时（已锁定）长按屏幕任意位置解锁。 */
+    onUnlock: (() -> Unit)?,
     /** 底部浮层（进度条等）的高度补偿，让最后一行能滚出浮层。 */
     bottomInset: Dp,
 ) {
@@ -700,7 +726,7 @@ private fun ScrolledReader(
             .fillMaxSize()
             // 只有屏幕中间那一竖条会切工具栏。整屏可点是误触的主要来源 ——
             // 拇指搭在屏幕边缘、滑动结束的余指都会把菜单抖出来。
-            .centerTapToToggleBars(onToggleBars)
+            .centerTapToToggleBars(onToggleBars, unlockLongPress = onUnlock)
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
@@ -746,6 +772,8 @@ private fun PagedReader(
     selectable: Boolean,
     selected: ClipSelection?,
     onSelect: (ClipSelection?) -> Unit,
+    /** 非空时（已锁定）长按屏幕任意位置解锁。 */
+    onUnlock: (() -> Unit)?,
 ) {
     val palette = LocalReaderPalette.current
     val measurer = rememberTextMeasurer()
@@ -916,7 +944,7 @@ private fun PagedReader(
             // 锁定不影响翻页：左右滑动始终可用，锁的只是「退出」和「工具栏」。
             modifier = Modifier
                 .fillMaxSize()
-                .centerTapToToggleBars(onToggleBars)
+                .centerTapToToggleBars(onToggleBars, unlockLongPress = onUnlock)
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
@@ -1358,87 +1386,6 @@ private fun ReaderBottomBar(
                     contentDescription = "阅读设置",
                     tint = palette.textPrimary,
                     modifier = Modifier.size(19.dp),
-                )
-            }
-        }
-    }
-}
-
-/** 自动滚屏时占位在正文区之外的控制条 —— 不浮在文字上。 */
-@Composable
-private fun AutoScrollBar(
-    label: String,
-    speed: Float,
-    onStop: () -> Unit,
-) {
-    val palette = LocalReaderPalette.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 22.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = "$label · %.1fx".format(speed),
-            fontSize = 12.sp,
-            color = palette.textSecondary,
-            modifier = Modifier.weight(1f),
-        )
-        NeuIconButton(onClick = onStop, size = 38.dp, elevation = 5.dp) {
-            Icon(
-                imageVector = Icons.Rounded.Pause,
-                contentDescription = "停止自动滚屏",
-                tint = palette.accent,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-}
-
-/**
- * 锁定条：占位在正文区之外的一栏，不浮在文字上。
- *
- * 1.3.7 把它做成了底部浮层，结果正好盖住最后一行 —— 而「长按解锁」这个动作
- * 恰恰发生在你想看清自己读到哪的时候。现在改成和 [AutoScrollBar] 一样的分栏，
- * 锁定时正文区让出一行高度，字不会被压住。
- *
- * 只有长按才解锁：轻碰就解开的锁等于没锁。
- */
-@Composable
-private fun LockBar(onUnlock: () -> Unit) {
-    val palette = LocalReaderPalette.current
-    val haptics = LocalHapticFeedback.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        NeuSurface(cornerRadius = 18.dp, elevation = 5.dp) {
-            Row(
-                modifier = Modifier
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onLongPress = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onUnlock()
-                            },
-                        )
-                    }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Lock,
-                    contentDescription = null,
-                    tint = palette.accent,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    text = "已锁定 · 长按解锁",
-                    fontSize = 12.sp,
-                    color = palette.textSecondary,
                 )
             }
         }

@@ -1,0 +1,12 @@
+Shelf, sorting and reading refinements.
+
+* Recent-book cards now carry a star: tap it to favourite or unfavourite without
+  opening the book.
+* Shelf order is fixed by file name again — reading a book no longer moves it to
+  the top of its group, so everything stays where you expect it.
+* Locking the reader no longer shows the "locked · long-press to unlock" chip
+  (it covered the last line). Long-press anywhere on the page to unlock; a short
+  toast confirms the lock.
+* The "auto-scrolling" bar is gone too: starting auto-scroll now hides the
+  toolbars automatically, and tapping the middle of the screen brings them back
+  so you can stop it.

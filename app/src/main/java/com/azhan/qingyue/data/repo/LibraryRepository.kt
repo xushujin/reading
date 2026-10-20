@@ -48,8 +48,10 @@ class LibraryRepository(
 ) {
 
     /**
-     * 书架列表：组内按「最后阅读时间」倒序 —— 最近读过的排最前，
-     * 没读过的（lastReadAt = 0）按书名排在后面。
+     * 书架列表：组内**固定按文件名排序**，不随阅读时间跳动。
+     *
+     * 以前按 lastReadAt 倒序，结果是「刚读过的书跳到组内最前面」——
+     * 位置会变，下一次想找它就得重新扫一遍。位置稳定比「最近在读」更重要。
      * Room 的 @Relation 本身不带排序能力，所以在这一层补。
      */
     fun observeShelves(): Flow<List<ShelfWithBooks>> =
@@ -276,9 +278,9 @@ class LibraryRepository(
     companion object {
         private const val MAX_SCAN_DEPTH = 8
 
-        /** 组内排序：最近阅读的排最前；没读过的按书名排。 */
-        private val BOOK_ORDER = compareByDescending<BookEntity> { it.lastReadAt }
-            .thenBy { it.title }
+        /** 组内排序：按文件名（大小写不敏感）。位置稳定，阅读不会改变顺序。 */
+        private val BOOK_ORDER = compareBy<BookEntity> { it.fileName.ifBlank { it.title }.lowercase() }
+            .thenBy { it.title.lowercase() }
 
         val SUPPORTED_EXTENSIONS = setOf("txt", "epub", "mobi", "md", "markdown")
 
