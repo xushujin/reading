@@ -40,7 +40,6 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -96,6 +95,7 @@ import com.azhan.qingyue.ui.neu.NeuButton
 import com.azhan.qingyue.ui.neu.NeuDialog
 import com.azhan.qingyue.ui.neu.NeuIconButton
 import com.azhan.qingyue.ui.neu.NeuSlider
+import com.azhan.qingyue.ui.neu.NeuSnackbarHost
 import com.azhan.qingyue.ui.neu.NeuSurface
 import com.azhan.qingyue.ui.theme.LocalReaderPalette
 import com.azhan.qingyue.ui.theme.ReaderPalette
@@ -561,7 +561,7 @@ private fun ReadingView(
         }
 
         // 收藏摘录后的反馈。抬到底栏之上，避免被工具栏压住
-        SnackbarHost(
+        NeuSnackbarHost(
             hostState = snackbarHost,
             modifier = Modifier
                 .align(Alignment.BottomCenter)

@@ -24,7 +24,6 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,6 +46,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.azhan.qingyue.AppContainer
 import com.azhan.qingyue.data.local.ClipEntity
 import com.azhan.qingyue.ui.bookshelf.BookRow
+import com.azhan.qingyue.ui.neu.NeuSnackbarHost
 import com.azhan.qingyue.ui.neu.NeuSurface
 import com.azhan.qingyue.ui.theme.LocalReaderPalette
 import com.azhan.qingyue.util.formatRelativeTime
@@ -88,7 +88,7 @@ fun FavoritesScreen(
 
     Scaffold(
         containerColor = palette.background,
-        snackbarHost = { SnackbarHost(snackbarHost) },
+        snackbarHost = { NeuSnackbarHost(snackbarHost) },
     ) { inner ->
         Column(
             modifier = Modifier

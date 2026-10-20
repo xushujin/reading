@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +41,7 @@ import com.azhan.qingyue.R
 import com.azhan.qingyue.data.prefs.KeepAliveMode
 import com.azhan.qingyue.data.prefs.ReaderSettings
 import com.azhan.qingyue.data.prefs.ReaderTheme
+import com.azhan.qingyue.ui.neu.NeuSnackbarHost
 import com.azhan.qingyue.ui.neu.NeuButton
 import com.azhan.qingyue.ui.neu.NeuIconButton
 import com.azhan.qingyue.ui.neu.NeuSegmented
@@ -65,7 +65,7 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
 
     Scaffold(
         containerColor = palette.background,
-        snackbarHost = { SnackbarHost(snackbarHost) },
+        snackbarHost = { NeuSnackbarHost(snackbarHost) },
     ) { inner ->
         Column(
             modifier = Modifier

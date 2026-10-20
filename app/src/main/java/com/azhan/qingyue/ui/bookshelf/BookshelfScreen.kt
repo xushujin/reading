@@ -42,7 +42,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -75,6 +74,7 @@ import com.azhan.qingyue.AppContainer
 import com.azhan.qingyue.R
 import com.azhan.qingyue.data.local.BookEntity
 import com.azhan.qingyue.data.local.ShelfWithBooks
+import com.azhan.qingyue.ui.neu.NeuSnackbarHost
 import com.azhan.qingyue.ui.neu.NeuButton
 import com.azhan.qingyue.ui.neu.NeuDropdownMenu
 import com.azhan.qingyue.ui.neu.NeuDialog
@@ -146,7 +146,7 @@ fun BookshelfScreen(
 
     Scaffold(
         containerColor = palette.background,
-        snackbarHost = { SnackbarHost(snackbarHost) },
+        snackbarHost = { NeuSnackbarHost(snackbarHost) },
     ) { inner ->
         Column(
             modifier = Modifier

@@ -1,0 +1,6 @@
+Toast messages now follow the app's theme instead of the platform black bar.
+
+* The lock / unlock notices (and every other short message) used Material's default
+  snackbar, which is a dark inverse-surface block. They now use the same
+  neumorphic surface as the rest of the UI: theme background colour, soft shadow,
+  normal text colour.
