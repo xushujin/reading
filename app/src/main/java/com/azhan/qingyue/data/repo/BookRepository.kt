@@ -39,7 +39,12 @@ class BookRepository(
     private val coverDir: File = File(context.filesDir, "covers").apply { mkdirs() }
     private val diskCache = DocumentDiskCache(File(context.filesDir, "doccache"))
 
-    private val documentCache = object : LruCache<Long, BookDocument>(MAX_CACHED_BOOKS) {}
+    // 按「字符总量」而不是「本数」限流：一本 1100 万字的书光正文就是二三十 MB，
+    // 按本数留 3 本等于允许近百 MB 常驻内存；按字符量算，大书只占一个名额，
+    // 小书能多留几本，总量始终有上限。
+    private val documentCache = object : LruCache<Long, BookDocument>(MAX_CACHED_CHARS) {
+        override fun sizeOf(key: Long, value: BookDocument): Int = value.totalChars
+    }
 
     fun observeBook(bookId: Long): Flow<BookEntity?> = dao.observeBook(bookId)
 
@@ -248,7 +253,8 @@ class BookRepository(
     }
 
     private companion object {
-        const val MAX_CACHED_BOOKS = 3
+        /** 内存里最多常驻多少正文字符（≈ 30MB 字符串）。 */
+        const val MAX_CACHED_CHARS = 16_000_000
         const val MAX_FILE_BYTES = 64L * 1024 * 1024
         const val TARGET_COVER_PX = 480
     }

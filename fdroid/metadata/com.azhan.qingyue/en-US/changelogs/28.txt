@@ -1,0 +1,12 @@
+In-app updates, straight from GitHub Releases.
+
+* Settings → 更新 → 检查更新 looks up the latest release, shows its notes, and
+  downloads the APK with a progress bar; the system installer takes over from there.
+* The app only touches the network when you tap "check for updates" — reading,
+  parsing and caching stay fully offline.
+* After downloading, the APK's signing certificate is compared with the installed
+  one. If they differ (for example when the installed build came from F-Droid),
+  the app explains it instead of leaving you with the system's bare
+  "app not installed" message.
+* If "install unknown apps" is not granted yet, the app jumps straight to its
+  permission page.

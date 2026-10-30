@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  只暴露 cacheDir/updates/ —— 应用内更新下载的 APK 放在这里，
+  安装时通过 content:// 交给系统安装器，不需要任何存储权限。
+-->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

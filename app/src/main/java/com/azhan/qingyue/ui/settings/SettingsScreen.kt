@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.azhan.qingyue.AppContainer
@@ -41,6 +42,7 @@ import com.azhan.qingyue.R
 import com.azhan.qingyue.data.prefs.KeepAliveMode
 import com.azhan.qingyue.data.prefs.ReaderSettings
 import com.azhan.qingyue.data.prefs.ReaderTheme
+import com.azhan.qingyue.data.update.UpdateInfo
 import com.azhan.qingyue.ui.neu.NeuSnackbarHost
 import com.azhan.qingyue.ui.neu.NeuButton
 import com.azhan.qingyue.ui.neu.NeuIconButton
@@ -50,6 +52,7 @@ import com.azhan.qingyue.ui.neu.NeuSurface
 import com.azhan.qingyue.ui.theme.LocalReaderPalette
 import com.azhan.qingyue.ui.theme.ThemeSwatch
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
@@ -58,6 +61,53 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     val settings by container.settingsStore.settings.collectAsState(initial = ReaderSettings())
     val snackbarHost = remember { SnackbarHostState() }
     var scanning by remember { mutableStateOf(false) }
+    var updateState by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Idle) }
+
+    fun checkUpdate() {
+        updateState = UpdateUiState.Checking
+        scope.launch {
+            container.updateRepository.checkForUpdate(BuildConfig.VERSION_NAME)
+                .onSuccess { info ->
+                    updateState = if (info == null) UpdateUiState.UpToDate else UpdateUiState.Available(info)
+                }
+                .onFailure {
+                    updateState = UpdateUiState.Failed(it.message ?: "检查失败，请检查网络")
+                }
+        }
+    }
+
+    fun installReady(file: File) {
+        if (!container.updateRepository.canInstallPackages()) {
+            container.updateRepository.openInstallPermissionSettings()
+            scope.launch { snackbarHost.showSnackbar("请允许「安装未知应用」，返回后再点安装") }
+            return
+        }
+        container.updateRepository.install(file)
+    }
+
+    fun startDownload(info: UpdateInfo) {
+        updateState = UpdateUiState.Downloading(0f)
+        scope.launch {
+            runCatching {
+                val file = container.updateRepository.download(info) { progress ->
+                    updateState = UpdateUiState.Downloading(progress)
+                }
+                // 签名不一致时直接说清楚，别让用户对着系统的「应用未安装」猜
+                if (!container.updateRepository.isSameSignature(file)) {
+                    updateState = UpdateUiState.Failed(
+                        "更新包与已安装版本的签名不一致，无法覆盖安装。\n" +
+                            "如果你是从 F-Droid 安装的，请继续通过 F-Droid 更新；" +
+                            "否则请先卸载当前版本，再手动安装下载好的 APK。",
+                    )
+                    return@runCatching
+                }
+                updateState = UpdateUiState.Ready(file)
+                installReady(file)
+            }.onFailure {
+                updateState = UpdateUiState.Failed(it.message ?: "下载失败，请检查网络")
+            }
+        }
+    }
 
     fun update(transform: (ReaderSettings) -> ReaderSettings) {
         scope.launch { container.settingsStore.update(transform) }
@@ -244,6 +294,101 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                     }
                 }
 
+                SectionTitle("更新")
+
+                SettingsCard {
+                    InfoRow("当前版本", "v${BuildConfig.VERSION_NAME}")
+                    Spacer(Modifier.height(10.dp))
+
+                    when (val state = updateState) {
+                        UpdateUiState.Idle -> {
+                            UpdateButton(text = "检查更新", onClick = ::checkUpdate)
+                        }
+
+                        UpdateUiState.Checking -> {
+                            UpdateHint("正在检查…")
+                        }
+
+                        UpdateUiState.UpToDate -> {
+                            UpdateHint("已是最新版本")
+                            Spacer(Modifier.height(10.dp))
+                            UpdateButton(text = "再检查一次", onClick = ::checkUpdate)
+                        }
+
+                        is UpdateUiState.Available -> {
+                            Text(
+                                text = "发现新版本 v${state.info.versionName}",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.textPrimary,
+                            )
+                            if (state.info.notes.isNotBlank()) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = state.info.notes,
+                                    fontSize = 11.sp,
+                                    color = palette.textSecondary,
+                                    lineHeight = 17.sp,
+                                    maxLines = 8,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            UpdateButton(
+                                text = "下载并安装" + if (state.info.apkSize > 0) {
+                                    "（${state.info.apkSize / 1024 / 1024} MB）"
+                                } else {
+                                    ""
+                                },
+                                onClick = { startDownload(state.info) },
+                            )
+                        }
+
+                        is UpdateUiState.Downloading -> {
+                            UpdateHint("正在下载 ${(state.progress * 100).toInt()}%")
+                            Spacer(Modifier.height(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .background(palette.shadow, RoundedCornerShape(2.dp)),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(state.progress.coerceIn(0f, 1f))
+                                        .height(4.dp)
+                                        .background(palette.accent, RoundedCornerShape(2.dp)),
+                                )
+                            }
+                        }
+
+                        is UpdateUiState.Ready -> {
+                            UpdateHint("下载完成，可以安装了")
+                            Spacer(Modifier.height(10.dp))
+                            UpdateButton(text = "安装", onClick = { installReady(state.file) })
+                        }
+
+                        is UpdateUiState.Failed -> {
+                            Text(
+                                text = state.message,
+                                fontSize = 11.sp,
+                                color = palette.textSecondary,
+                                lineHeight = 17.sp,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            UpdateButton(text = "重试", onClick = ::checkUpdate)
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "更新来自 GitHub Releases，只在点「检查更新」时联网。",
+                        fontSize = 11.sp,
+                        color = palette.textSecondary,
+                        lineHeight = 17.sp,
+                    )
+                }
+
                 SectionTitle("关于")
 
                 SettingsCard {
@@ -252,8 +397,8 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                         value = "${stringResource(R.string.app_name)} v${BuildConfig.VERSION_NAME}",
                     )
                     InfoRow("实现", "Kotlin + Jetpack Compose")
-                    InfoRow("支持格式", "TXT / EPUB")
-                    InfoRow("权限", "无需存储权限（SAF 授权）")
+                    InfoRow("支持格式", "TXT / EPUB / MOBI / Markdown")
+                    InfoRow("权限", "无存储权限（SAF 授权）；网络仅用于检查更新")
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = "书架通过系统文件选择器授权目录，App 只能读取你主动添加的文件夹。",
@@ -374,4 +519,29 @@ private fun InfoRow(label: String, value: String) {
             color = palette.textPrimary,
         )
     }
+}
+
+/** 更新流程的状态机。放在设置页内部 —— 它只服务于这一屏，没有复用价值。 */
+private sealed interface UpdateUiState {
+    data object Idle : UpdateUiState
+    data object Checking : UpdateUiState
+    data object UpToDate : UpdateUiState
+    data class Available(val info: UpdateInfo) : UpdateUiState
+    data class Downloading(val progress: Float) : UpdateUiState
+    data class Ready(val file: File) : UpdateUiState
+    data class Failed(val message: String) : UpdateUiState
+}
+
+@Composable
+private fun UpdateButton(text: String, onClick: () -> Unit) {
+    val palette = LocalReaderPalette.current
+    NeuButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(text = text, fontSize = 13.sp, color = palette.textPrimary)
+    }
+}
+
+@Composable
+private fun UpdateHint(text: String) {
+    val palette = LocalReaderPalette.current
+    Text(text = text, fontSize = 12.sp, color = palette.textSecondary)
 }

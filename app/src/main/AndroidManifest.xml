@@ -7,7 +7,13 @@
       屏幕常亮使用 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON，无需 WAKE_LOCK 权限。
       largeHeap：解析大书（25MB 级 MOBI）时原文 + 解压结果 + 字符串会在堆上同时存在，
       默认堆在不少机型上不够用，会直接 OOM。
+
+      INTERNET / REQUEST_INSTALL_PACKAGES：仅用于应用内检查更新（GitHub Releases）
+      与安装新版本。除此之外 App 不联网；阅读功能完全离线。
     -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".QingYueApp"
@@ -32,6 +38,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 应用内更新：把下载好的 APK 以 content:// 交给系统安装器 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

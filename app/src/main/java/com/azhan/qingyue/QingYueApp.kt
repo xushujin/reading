@@ -7,6 +7,7 @@ import com.azhan.qingyue.data.local.LibraryDao
 import com.azhan.qingyue.data.prefs.SettingsStore
 import com.azhan.qingyue.data.repo.BookRepository
 import com.azhan.qingyue.data.repo.LibraryRepository
+import com.azhan.qingyue.data.update.UpdateRepository
 
 /**
  * 极简依赖容器。刻意不引入 DI 框架 —— 这个 App 的依赖图只有四个节点，
@@ -28,6 +29,10 @@ class AppContainer(context: Context) {
 
     val bookRepository: BookRepository by lazy {
         BookRepository(appContext, libraryDao)
+    }
+
+    val updateRepository: UpdateRepository by lazy {
+        UpdateRepository(appContext)
     }
 }
 
