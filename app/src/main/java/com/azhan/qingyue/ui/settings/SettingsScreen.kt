@@ -42,6 +42,7 @@ import com.azhan.qingyue.R
 import com.azhan.qingyue.data.prefs.KeepAliveMode
 import com.azhan.qingyue.data.prefs.ReaderSettings
 import com.azhan.qingyue.data.prefs.ReaderTheme
+import com.azhan.qingyue.data.update.DownloadProgress
 import com.azhan.qingyue.data.update.UpdateInfo
 import com.azhan.qingyue.ui.neu.NeuSnackbarHost
 import com.azhan.qingyue.ui.neu.NeuButton
@@ -51,6 +52,8 @@ import com.azhan.qingyue.ui.neu.NeuSlider
 import com.azhan.qingyue.ui.neu.NeuSurface
 import com.azhan.qingyue.ui.theme.LocalReaderPalette
 import com.azhan.qingyue.ui.theme.ThemeSwatch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -62,6 +65,7 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     val snackbarHost = remember { SnackbarHostState() }
     var scanning by remember { mutableStateOf(false) }
     var updateState by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Idle) }
+    var downloadJob by remember { mutableStateOf<Job?>(null) }
 
     fun checkUpdate() {
         updateState = UpdateUiState.Checking
@@ -86,11 +90,12 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     }
 
     fun startDownload(info: UpdateInfo) {
-        updateState = UpdateUiState.Downloading(0f)
-        scope.launch {
-            runCatching {
+        downloadJob?.cancel()
+        updateState = UpdateUiState.Downloading(info, DownloadProgress(0, info.apkSize, 0))
+        downloadJob = scope.launch {
+            try {
                 val file = container.updateRepository.download(info) { progress ->
-                    updateState = UpdateUiState.Downloading(progress)
+                    updateState = UpdateUiState.Downloading(info, progress)
                 }
                 // 签名不一致时直接说清楚，别让用户对着系统的「应用未安装」猜
                 if (!container.updateRepository.isSameSignature(file)) {
@@ -99,14 +104,25 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                             "如果你是从 F-Droid 安装的，请继续通过 F-Droid 更新；" +
                             "否则请先卸载当前版本，再手动安装下载好的 APK。",
                     )
-                    return@runCatching
+                    return@launch
                 }
                 updateState = UpdateUiState.Ready(file)
                 installReady(file)
-            }.onFailure {
-                updateState = UpdateUiState.Failed(it.message ?: "下载失败，请检查网络")
+            } catch (cancel: CancellationException) {
+                // 用户取消：回到「发现新版本」，可以随时重下
+                updateState = UpdateUiState.Available(info)
+                throw cancel
+            } catch (t: Throwable) {
+                updateState = UpdateUiState.Failed(t.message ?: "下载失败，请检查网络")
+            } finally {
+                downloadJob = null
             }
         }
+    }
+
+    fun cancelDownload() {
+        downloadJob?.cancel()
+        downloadJob = null
     }
 
     fun update(transform: (ReaderSettings) -> ReaderSettings) {
@@ -345,7 +361,13 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                         }
 
                         is UpdateUiState.Downloading -> {
-                            UpdateHint("正在下载 ${(state.progress * 100).toInt()}%")
+                            UpdateHint("正在下载 ${(state.progress.fraction * 100).toInt()}%")
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = downloadDetail(state.progress),
+                                fontSize = 11.sp,
+                                color = palette.textSecondary,
+                            )
                             Spacer(Modifier.height(8.dp))
                             Box(
                                 modifier = Modifier
@@ -355,11 +377,13 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth(state.progress.coerceIn(0f, 1f))
+                                        .fillMaxWidth(state.progress.fraction)
                                         .height(4.dp)
                                         .background(palette.accent, RoundedCornerShape(2.dp)),
                                 )
                             }
+                            Spacer(Modifier.height(10.dp))
+                            UpdateButton(text = "取消下载", onClick = ::cancelDownload)
                         }
 
                         is UpdateUiState.Ready -> {
@@ -527,7 +551,7 @@ private sealed interface UpdateUiState {
     data object Checking : UpdateUiState
     data object UpToDate : UpdateUiState
     data class Available(val info: UpdateInfo) : UpdateUiState
-    data class Downloading(val progress: Float) : UpdateUiState
+    data class Downloading(val info: UpdateInfo, val progress: DownloadProgress) : UpdateUiState
     data class Ready(val file: File) : UpdateUiState
     data class Failed(val message: String) : UpdateUiState
 }
@@ -544,4 +568,22 @@ private fun UpdateButton(text: String, onClick: () -> Unit) {
 private fun UpdateHint(text: String) {
     val palette = LocalReaderPalette.current
     Text(text = text, fontSize = 12.sp, color = palette.textSecondary)
+}
+
+/** 「1.2 MB/s · 剩余 8 秒」。速度还没算出来时只说正在连接。 */
+private fun downloadDetail(progress: DownloadProgress): String {
+    if (progress.bytesPerSecond <= 0) return "正在连接…"
+
+    val speed = if (progress.bytesPerSecond >= 1024 * 1024) {
+        "%.1f MB/s".format(progress.bytesPerSecond / 1024f / 1024f)
+    } else {
+        "%d KB/s".format((progress.bytesPerSecond / 1024).coerceAtLeast(1))
+    }
+
+    val eta = progress.etaSeconds
+    return when {
+        eta < 0 -> speed
+        eta < 60 -> "$speed · 剩余 $eta 秒"
+        else -> "$speed · 剩余 ${eta / 60} 分 ${eta % 60} 秒"
+    }
 }

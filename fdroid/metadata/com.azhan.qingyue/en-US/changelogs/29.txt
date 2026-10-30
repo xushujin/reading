@@ -1,0 +1,7 @@
+Update downloads now show speed and time remaining, and can be cancelled.
+
+* While downloading you see the percentage, the current speed (measured over a
+  500 ms window) and the estimated time left.
+* A "取消下载" button stops the download immediately; the partial file is deleted
+  so a retry always starts from a clean state. Leaving the settings screen also
+  cancels it.

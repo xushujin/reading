@@ -26,6 +26,23 @@ data class UpdateInfo(
     val apkSize: Long,
 )
 
+/** 下载进度。速度是 500ms 窗口的均值，[etaSeconds] 为负表示还算不出来。 */
+data class DownloadProgress(
+    val downloaded: Long,
+    val total: Long,
+    val bytesPerSecond: Long,
+) {
+    val fraction: Float
+        get() = if (total > 0) (downloaded.toFloat() / total).coerceIn(0f, 1f) else 0f
+
+    val etaSeconds: Long
+        get() = if (bytesPerSecond > 0 && total > downloaded) {
+            (total - downloaded) / bytesPerSecond
+        } else {
+            -1
+        }
+}
+
 /**
  * 应用内更新。
  *
@@ -74,7 +91,13 @@ class UpdateRepository(private val context: Context) {
      * 下载到 cacheDir/updates/。每次先清空目录，避免把上一版的包当成本次结果。
      * [onProgress] 在 IO 线程回调，0..1。
      */
-    suspend fun download(info: UpdateInfo, onProgress: (Float) -> Unit): File =
+    /**
+     * 下载到 cacheDir/updates/。每次先清空目录，避免把上一版的包当成本次结果。
+     *
+     * 取消：循环里每块都 `ensureActive()`，协程一取消就抛 CancellationException，
+     * 半截文件在 catch 里删掉 —— 否则用户取消后重下会拿到一个「看起来存在」的坏包。
+     */
+    suspend fun download(info: UpdateInfo, onProgress: (DownloadProgress) -> Unit): File =
         withContext(Dispatchers.IO) {
             val dir = File(context.cacheDir, "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { it.delete() }
@@ -92,21 +115,38 @@ class UpdateRepository(private val context: Context) {
                     target.outputStream().use { output ->
                         val buffer = ByteArray(64 * 1024)
                         var copied = 0L
+
+                        // 速度用 500ms 滑动窗口算，避免每块都抖动
+                        var windowStart = System.nanoTime()
+                        var windowBytes = 0L
+                        var speed = 0L
+
                         while (true) {
                             currentCoroutineContext().ensureActive()
                             val read = input.read(buffer)
                             if (read < 0) break
                             output.write(buffer, 0, read)
                             copied += read
-                            if (total > 0) {
-                                onProgress((copied.toFloat() / total).coerceIn(0f, 1f))
+                            windowBytes += read
+
+                            val now = System.nanoTime()
+                            val elapsed = now - windowStart
+                            if (elapsed >= SPEED_WINDOW_NANOS) {
+                                speed = windowBytes * 1_000_000_000L / elapsed
+                                windowStart = now
+                                windowBytes = 0L
                             }
+                            onProgress(DownloadProgress(copied, total, speed))
                         }
                         if (total > 0 && copied != total) {
                             error("下载不完整（$copied / $total 字节）")
                         }
                     }
                 }
+            } catch (t: Throwable) {
+                // 失败/取消都清掉半截文件
+                runCatching { target.delete() }
+                throw t
             } finally {
                 connection?.disconnect()
             }
@@ -221,6 +261,9 @@ class UpdateRepository(private val context: Context) {
         const val CONNECT_TIMEOUT_MS = 10_000
         const val READ_TIMEOUT_MS = 20_000
         const val MAX_REDIRECTS = 5
+
+        /** 速度统计窗口：太短会抖，太长反应迟钝。 */
+        const val SPEED_WINDOW_NANOS = 500_000_000L
     }
 }
 
